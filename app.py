@@ -1,136 +1,174 @@
-import time
-import pandas as pd
-import requests
 import streamlit as st
+import yfinance as yf
+import pandas as pd
+import numpy as np
 
-# Configurazione Mobile-First ottimizzata per lo schermo dell'iPhone
-st.set_page_config(
-    page_title="AI Quant Mobile", page_icon="📱", layout="centered"
-)
+# 1. DOWNLOAD GLOBAL DATA (Paniere Ampliato + Pre/Post Market + Futures H24)
+@st.cache_data(ttl=30) # Aggiornamento automatico ogni 30 secondi per massima reattività
+def carica_dati_globali_completi():
+    tickers = {
+        # Azioni Target (Milano)
+        "STM_MILANO": "STM.MI",
+        "LEONARDO_MILANO": "LDO.MI",
+        
+        # PANIERE DEI 5 LEADER MONDIALI DEI CHIP (Incluso Pre/Post Market USA)
+        "NVIDIA_USA": "NVDA",       # Leader AI e Capitalizzazione
+        "AMD_USA": "AMD",           # Leader Processori e GPU
+        "TSMC_USA": "TSM",          # Il più grande produttore fisico al mondo (Taiwan/USA)
+        "ASML_USA": "ASML",         # Monopolio macchinari litografici avanzati (Olanda/USA)
+        "INTEL_USA": "INTC",        # Gigante dei microprocessori integrati
+        
+        # Trend di Sfondo Internazionali (Futures attivi quasi 24h)
+        "FUTURE_NASDAQ": "NQ=F",    # Futures NASDAQ 100
+        "FUTURE_FTSEMIB": "STXE.MI" # Proxy macro per Europa/Milano
+    }
+    
+    prezzi_correnti = {}
+    var_percentuali = {}
+    storici_minuto = {}
+    
+    for nome, ticker in tickers.items():
+        ticker_obj = yf.Ticker(ticker)
+        # Scarichiamo gli ultimi 3 giorni con candele a 1 minuto includendo i mercati estesi
+        storico = ticker_obj.history(period="3d", interval="1m", prepost=True)
+        
+        if not storico.empty:
+            storico_pulito = storico['Close'].dropna()
+            if len(storico_pulito) > 1:
+                prezzi_correnti[nome] = storico_pulito.iloc[-1]
+                storici_minuto[nome] = storico_pulito
+                
+                # Calcolo della variazione percentuale giornaliera
+                prezzo_apertura = storico['Open'].iloc[0]
+                if prezzo_apertura > 0:
+                    var_percentuali[nome] = ((storico_pulito.iloc[-1] - prezzo_apertura) / prezzo_apertura) * 100
+                else:
+                    var_percentuali[nome] = 0.0
+            else:
+                prezzi_correnti[nome] = storico_pulito.iloc[-1] if len(storico_pulito) == 1 else 0.0
+                var_percentuali[nome] = 0.0
+        else:
+            prezzi_correnti[nome] = 0.0
+            var_percentuali[nome] = 0.0
+            
+    return prezzi_correnti, var_percentuali, storici_minuto
 
-# Stile grafico personalizzato in modalità scura (stile iOS)
-st.markdown(
-    """
-    <style>
-    .reportview-container .main .block-container{ max-width: 100%; padding-top: 1rem; }
-    .stMetric { background-color: #1e1e1e; padding: 15px; border-radius: 15px; border: 1px solid #333; }
-    div[data-testid="stMetricValue"] { color: #00ffcc; font-size: 24px; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.title("📱 AI Quant Trading")
-st.caption("Monitoraggio Filiera Chip Globale H24")
-
-# Sostituisci il testo tra le virgolette con la tua chiave Alpha Vantage reale
-ALPHA_VANTAGE_KEY = "IL_TUO_API_KEY_QUI"
-
-# Elenco dei produttori e venditori mondiali di semiconduttori
-CHIP_TICKERS = {
-    "NVDA": "NVIDIA",
-    "TSM": "TSMC",
-    "ASML": "ASML",
-    "INF": "Infineon",
-    "NXPI": "NXP",
-    "TXN": "Texas Inst.",
-    "AMD": "AMD",
-    "INTC": "Intel",
-}
-
-# Pesi percentuali attribuiti a ciascuna società nell'algoritmo
-WEIGHTS = {
-    "NVDA": 0.30,
-    "TSM": 0.25,
-    "ASML": 0.15,
-    "INF": 0.10,
-    "NXPI": 0.08,
-    "TXN": 0.05,
-    "AMD": 0.05,
-    "INTC": 0.02,
-}
-
-
-def get_live_data(ticker, api_key):
-    """Estrazione dati in tempo reale dai mercati finanziari globali."""
-    url = f"https://alphavantage.co{ticker}&apikey={api_key}"
-    try:
-        res = requests.get(url).json().get("Global Quote", {})
-        return float(res.get("10. change percent", "0.0%").replace("%", ""))
-    except:
-        return 0.0
-
-
-# Pulsante per avviare il calcolo in tempo reale
-if st.button("🔄 AGGIORNA PREVISIONI ORA", use_container_width=True):
-    if ALPHA_VANTAGE_KEY == "23US5COJVCUTVQXK":
-        st.error(
-            "⚠️ Inserisci la tua chiave API di Alpha Vantage nel codice per scaricare i dati."
-        )
+# 2. ALGORITMO QUANTITATIVO CON CORRELAZIONE FUTURES E PANIERE CHIPS
+def calcola_previsione_globale_ampliata(asset_target, prezzi_attuali, var_percentuali, storici):
+    if asset_target not in storici or len(storici[asset_target]) < 15:
+        return "Calibrazione Dati...", 0.0, 0.0
+    
+    # Serie storica al minuto del titolo da prevedere
+    serie_minuti = storici[asset_target]
+    prezzi_target = serie_minuti.values
+    
+    # A. Media Mobile Esponenziale (EMA a 15 Minuti)
+    ema_15m = serie_minuti.tail(15).ewm(span=15, adjust=False).mean().iloc[-1]
+    
+    # B. Regressione Lineare Rapida (Pendenza degli ultimi 15 minutes)
+    y = prezzi_target[-15:]
+    x = np.arange(len(y))
+    pendenza, intercetta = np.polyfit(x, y, 1)
+    
+    # C. Calcolo dell'impulso dei Futures H24 (Sentiment macro-economico attuale)
+    spinta_futures = 0.0
+    divisore_futures = 0
+    for f in ["FUTURE_NASDAQ", "FUTURE_FTSEMIB"]:
+        if f in storici and len(storici[f]) >= 5:
+            var_f = (storici[f].iloc[-1] - storici[f].iloc[-5]) / storici[f].iloc[-5]
+            spinta_futures += var_f
+            divisore_futures += 1
+    spinta_macro = (spinta_futures / divisore_futures) if divisore_futures > 0 else 0
+    
+    # D. Calcolo dell'impulso del PANIERE ALLARGATO CHIPS (Ultimi 5 minuti)
+    spinta_chips = 0.0
+    divisore_chips = 0
+    lista_leader = ["NVIDIA_USA", "AMD_USA", "TSMC_USA", "ASML_USA", "INTEL_USA"]
+    
+    for c in lista_leader:
+        if c in storici and len(storici[c]) >= 5:
+            var_c = (storici[c].iloc[-1] - storici[c].iloc[-5]) / storici[c].iloc[-5]
+            spinta_chips += var_c
+            divisore_chips += 1
+    spinta_micro = (spinta_chips / divisore_chips) if divisore_chips > 0 else 0
+    
+    # E. Fusione Algoritmica (Trend Locale + Impulso Macro Futures + Impulso 5 Leader Mondiali)
+    prezzo_attuale = prezzi_attuali[asset_target]
+    prezzo_previsto = (prezzo_attuale + (pendenza * 5)) * (1 + spinta_macro + spinta_micro)
+    
+    # Generazione del segnale operativo ad incrocio protetto
+    if prezzo_previsto > prezzo_attuale and prezzo_attuale > ema_15m and pendenza > 0:
+        segnale = "🟢 RIALZO (Conferma macro e del paniere leader)"
+    elif prezzo_previsto < prezzo_attuale and prezzo_attuale < ema_15m and pendenza < 0:
+        segnale = "🔴 RIBASSO (Pressione ribassista globale del paniere)"
     else:
-        with st.spinner("Interrogando i mercati mondiali in tempo reale..."):
-            changes = {}
-            for i, ticker in enumerate(CHIP_TICKERS.keys()):
-                changes[ticker] = get_live_data(ticker, ALPHA_VANTAGE_KEY)
-                # Pausa tecnica per non sovraccaricare il server del piano gratuito
-                if (i + 1) % 4 == 0:
-                    time.sleep(12)
+        segnale = "🟡 STANDBY (Fase laterale o flussi contrastanti USA/Milano)"
+        
+    return segnale, prezzo_previsto, ema_15m
 
-            # Scarica i dati di STM quotata a Wall Street per anticipare i movimenti di Milano
-            stm_live = get_live_data("STM", ALPHA_VANTAGE_KEY)
+# --- INTERFACCIA STREAMLIT ---
+st.set_page_config(page_title="Algoritmo Quant Global", layout="wide")
+st.title("🤖 Algoritmo Quantitativo Globale Semiconduttori")
+st.write("Analisi predittiva al minuto basata sulle interconnessioni di Piazza Affari con i 5 leader mondiali dei chip e i Futures H24.")
 
-            # Calcolo dell'Indice di Impulso Globale Semiconduttori
-            global_index = sum(
-                changes[t] * WEIGHTS[t] for t in CHIP_TICKERS.keys()
-            )
+if st.button("🔄 Forza Aggiornamento Istantaneo"):
+    st.cache_data.clear()
 
-            # Algoritmo decisionale quantitativo H24 per STM e Leonardo
-            score_stm = (0.6 * global_index) + (0.4 * stm_live)
-            score_leo = (0.3 * global_index) + (0.7 * (global_index * 0.8))
+with st.spinner("Sincronizzazione orari e analisi del paniere mondiale chip..."):
+    prezzi, var_pct, storici = carica_dati_globali_completi()
 
-            def determina_segnale(score):
-                if score > 0.8:
-                    return "🟢 COMPRA", "#00cc66"
-                elif score < -0.8:
-                    return "🔴 VENDI", "#ff3333"
-                return "🟡 TIENI", "#ffcc00"
+if prezzi.get("STM_MILANO", 0) == 0:
+    st.error("Errore di rete. Impossibile contattare i server finanziari mondiali. Riprova.")
+else:
+    # SEZIONE 1: VISUALIZZAZIONE DATI E PREZZI REAL-TIME CON VARIAZIONI %
+    st.subheader("📊 Monitor dei Mercati Internazionali")
+    
+    col_it, col_us, col_fut = st.columns(3)
+    
+    with col_it:
+        st.markdown("##### 🇮🇹 Target Milano")
+        st.metric(label="STM", value=f"{prezzi['STM_MILANO']:.2f} €", delta=f"{var_pct['STM_MILANO']:.2f}%")
+        st.metric(label="LEONARDO", value=f"{prezzi['LEONARDO_MILANO']:.2f} €", delta=f"{var_pct['LEONARDO_MILANO']:.2f}%")
+        
+    with col_us:
+        st.markdown("##### 🌎 Paniere 5 Leader Mondiali Chips (Pre/Post USA)")
+        st.metric(label="NVIDIA (Design & AI)", value=f"{prezzi['NVIDIA_USA']:.2f} $", delta=f"{var_pct['NVIDIA_USA']:.2f}%")
+        st.metric(label="TSMC (Produzione Fisica)", value=f"{prezzi['TSMC_USA']:.2f} $", delta=f"{var_pct['TSMC_USA']:.2f}%")
+        st.metric(label="ASML (Macchinari Litografici)", value=f"{prezzi['ASML_USA']:.2f} $", delta=f"{var_pct['ASML_USA']:.2f}%")
+        st.metric(label="AMD (Processori & GPU)", value=f"{prezzi['AMD_USA']:.2f} $", delta=f"{var_pct['AMD_USA']:.2f}%")
+        st.metric(label="INTEL (Microprocessori PC)", value=f"{prezzi['INTEL_USA']:.2f} $", delta=f"{var_pct['INTEL_USA']:.2f}%")
+        
+    with col_fut:
+        st.markdown("##### 📈 Futures Macro & Indici (Sentiment H24)")
+        st.metric(label="Futures NASDAQ 100", value=f"{prezzi['FUTURE_NASDAQ']:.2f} pts", delta=f"{var_pct['FUTURE_NASDAQ']:.2f}%")
+        st.metric(label="Proxy Europa / Milano", value=f"{prezzi['FUTURE_FTSEMIB']:.2f} €", delta=f"{var_pct['FUTURE_FTSEMIB']:.2f}%")
 
-            sig_stm, col_stm = determina_segnale(score_stm)
-            sig_leo, col_leo = determina_segnale(score_leo)
-
-            # --- SCHEDA TARGET 1: STM ---
-            st.markdown("---")
-            st.markdown("### **STMicroelectronics (STM)**")
-            st.markdown(
-                f"<h2 style='color:{col_stm}; margin-top:0;'>{sig_stm}</h2>",
-                unsafe_allow_html=True,
-            )
-
-            col_m1, col_m2 = st.columns(2)
-            with col_m1:
-                st.metric("Impatto Chip", f"{global_index:.2f}%")
-            with col_m2:
-                st.metric("Previsione Titolo", f"{score_stm:.2f}%")
-
-            # --- SCHEDA TARGET 2: LEONARDO ---
-            st.markdown("---")
-            st.markdown("### **Leonardo S.p.A. (LDO)**")
-            st.markdown(
-                f"<h2 style='color:{col_leo}; margin-top:0;'>{sig_leo}</h2>",
-                unsafe_allow_html=True,
-            )
-
-            col_m3, col_m4 = st.columns(2)
-            with col_m3:
-                st.metric("Spinta Difesa", f"{(global_index*0.8):.2f}%")
-            with col_m4:
-                st.metric("Previsione Titolo", f"{score_leo:.2f}%")
-
-            # --- DETTAGLIO MONITORAGGIO FUSI ORARI ---
-            st.markdown("---")
-            st.markdown("### 🌍 Focus Borse Attive")
-            st.write(f"**Impulso Asia (TSMC):** {changes['TSM']:.2f}%")
-            st.write(
-                f"**Impulso Europa (ASML/INF):** {((changes['ASML']+changes['INF'])/2):.2f}%"
-            )
-            st.write(f"**Impulso America (NVIDIA):** {changes['NVDA']:.2f}%")
+    st.markdown("---")
+    
+    # SEZIONE 2: SEGNALI OPERATIVI GENERATI DALL'ALGORITMO
+    st.subheader("🔮 Previsioni Algoritmiche e Indicazioni Operative")
+    
+    c_stm, c_ldo = st.columns(2)
+    
+    with c_stm:
+        st.markdown("### **Asset: STM (Milano)**")
+        seg_stm, target_stm, ema_stm = calcola_previsione_globale_ampliata("STM_MILANO", prezzi, var_pct, storici)
+        
+        # Gestione visiva intuitiva del segnale
+        if "🟢" in seg_stm: st.success(f"**Indicazione: COMPRARE**\n\n{seg_stm}")
+        elif "🔴" in seg_stm: st.error(f"**Indicazione: VENDERE / OUT**\n\n{seg_stm}")
+        else: st.warning(f"**Indicazione: ATTENDERE (STANDBY)**\n\n{seg_stm}")
+            
+        st.metric(label="Target Price Calcolato (Prossimi Minuti)", value=f"{target_stm:.2f} €")
+        st.caption(f"Supporto Dinamico (EMA 15m): {ema_stm:.2f} €")
+        
+    with col_ldo:
+        st.markdown("### **Asset: LEONARDO (Milano)**")
+        seg_ldo, target_ldo, ema_ldo = calcola_previsione_globale_ampliata("LEONARDO_MILANO", prezzi, var_pct, storici)
+        
+        if "🟢" in seg_ldo: st.success(f"**Indicazione: COMPRARE**\n\n{seg_ldo}")
+        elif "🔴" in seg_ldo: st.error(f"**Indicazione: VENDERE / OUT**\n\n{seg_ldo}")
+        else: st.warning(f"**Indicazione: ATTENDERE (STANDBY)**\n\n{seg_ldo}")
+            
+        st.metric(label="Target Price Calcolato (Prossimi Minuti)", value=f"{target_ldo:.2f} €")
+        st.caption(f"Supporto Dinamico (EMA 15m): {ema_ldo:.2f} €")
