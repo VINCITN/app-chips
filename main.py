@@ -3,8 +3,8 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-# 1. DOWNLOAD GLOBAL DATA CON FALLBACK DI SICUREZZA ANTI-BAN
-@st.cache_data(ttl=60)
+# 1. DOWNLOAD GLOBAL DATA CON RECUPERO STORICO REALE A 5 GIORNI
+@st.cache_data(ttl=30) # Cache rapida a 30 secondi
 def carica_dati_globali_completi():
     tickers = {
         "STM_MILANO": "STM.MI",
@@ -22,14 +22,13 @@ def carica_dati_globali_completi():
     var_percentuali = {}
     storici_minuto = {}
     
-    # Configuriamo yfinance per usare un endpoint di rete alternativo ed evitare il blocco IP di Streamlit
-    yf.set_tz_cache_location(None) # Disattiva il database locale che causava il blocco su Streamlit
+    yf.set_tz_cache_location(None) # Evita i blocchi di fuso orario su Streamlit
     
     for nome, ticker in tickers.items():
         try:
-            # Riduciamo il carico a 1 giorno solo per scavalcare i firewall di Yahoo
             ticker_obj = yf.Ticker(ticker)
-            storico = ticker_obj.history(period="1d", interval="1m", prepost=True)
+            # USIAMO "5d" AL POSTO DI "1d" per evitare tabelle vuote a borsa chiusa o nel weekend
+            storico = ticker_obj.history(period="5d", interval="1m", prepost=True)
             
             if not storico.empty:
                 storico_pulito = storico['Close'].dropna()
@@ -37,7 +36,8 @@ def carica_dati_globali_completi():
                     prezzi_correnti[nome] = storico_pulito.iloc[-1]
                     storici_minuto[nome] = storico_pulito
                     
-                    prezzo_apertura = storico['Open'].iloc[0]
+                    # Calcolo della variazione percentuale prendendo l'apertura effettiva del set dati
+                    prezzo_apertura = storico['Open'].dropna().iloc[0] if len(storico['Open'].dropna()) > 0 else storico_pulito.iloc[-1]
                     if prezzo_apertura > 0:
                         var_percentuali[nome] = ((storico_pulito.iloc[-1] - prezzo_apertura) / prezzo_apertura) * 100
                     else:
@@ -46,7 +46,6 @@ def carica_dati_globali_completi():
                     prezzi_correnti[nome] = storico_pulito.iloc[-1] if len(storico_pulito) == 1 else 0.0
                     var_percentuali[nome] = 0.0
             else:
-                # Simulazione dati tecnici protetti in caso di momentaneo blackout del server Yahoo
                 prezzi_correnti[nome] = 0.0
                 var_percentuali[nome] = 0.0
         except Exception:
@@ -55,47 +54,38 @@ def carica_dati_globali_completi():
             
     return prezzi_correnti, var_percentuali, storici_minuto
 
-# 2. ALGORITMO QUANTITATIVO CON CORRELAZIONE FUTURES E PANIERE CHIPS
+# 2. ALGORITMO QUANTITATIVO ADATTIVO (Funziona sempre)
 def calcola_previsione_globale_ampliata(asset_target, prezzi_attuali, var_percentuali, storici):
-    if asset_target not in storici or len(storici[asset_target]) < 5:
-        # Se i dati storici al minuto sono temporaneamente scarsi, eseguiamo una stima basata sulle variazioni percentuali giornaliere
-        prezzo_attuale = prezzi_attuali.get(asset_target, 0)
-        v_pct = var_percentuali.get(asset_target, 0)
-        
-        # Calcolo emergenza su indici
-        spinta_macro = var_percentuali.get("FUTURE_NASDAQ", 0) / 100
-        spinta_micro = var_percentuali.get("NVIDIA_USA", 0) / 100
-        
-        prezzo_previsto = prezzo_attuale * (1 + (spinta_macro + spinta_micro) / 2)
-        if prezzo_previsto > prezzo_attuale and v_pct > 0:
-            return "🟢 RIALZO (Segnale basato su performance giornaliera)", prezzo_previsto, prezzo_attuale
-        elif prezzo_previsto < prezzo_attuale and v_pct < 0:
-            return "🔴 RIBASSO (Pressione ribassista di emergenza)", prezzo_previsto, prezzo_attuale
-        else:
-            return "腔 STANDBY (Attesa calibrazione flussi orari)", prezzo_previsto, prezzo_attuale
+    if asset_target not in storici or len(storici[asset_target]) < 5 or prezzi_attuali.get(asset_target, 0) == 0:
+        return "⏳ CALIBRAZIONE (In attesa di flussi)", 0.0, 0.0
     
     serie_minuti = storici[asset_target]
     prezzi_target = serie_minuti.values
+    
+    # Calcolo indicatori sulle candele disponibili
     ema_15m = serie_minuti.tail(15).ewm(span=15, adjust=False).mean().iloc[-1] if len(serie_minuti) >= 15 else prezzi_target[-1]
     
-    y = prezzi_target[-5:] if len(prezzi_target) >= 5 else prezzi_target
+    y = prezzi_target[-15:] if len(prezzi_target) >= 15 else prezzi_target
     x = np.arange(len(y))
     pendenza, intercetta = np.polyfit(x, y, 1) if len(y) > 1 else (0, 0)
     
+    # Impulso Futures (Ultimi minuti disponibili)
     spinta_futures = 0.0
     divisore_futures = 0
     for f in ["FUTURE_NASDAQ", "FUTURE_FTSEMIB"]:
-        if f in storici and len(storici[f]) >= 2:
-            var_f = (storici[f].iloc[-1] - storici[f].iloc[-2]) / storici[f].iloc[-2]
+        if f in storici and len(storici[f]) >= 5:
+            var_f = (storici[f].iloc[-1] - storici[f].iloc[-5]) / storici[f].iloc[-5]
             spinta_futures += var_f
             divisore_futures += 1
     spinta_macro = (spinta_futures / divisore_futures) if divisore_futures > 0 else 0
     
+    # Impulso Basket Semiconduttori Globali
     spinta_chips = 0.0
     divisore_chips = 0
-    for c in ["NVIDIA_USA", "AMD_USA", "TSMC_USA", "ASML_USA", "INTEL_USA"]:
-        if c in storici and len(storici[c]) >= 2:
-            var_c = (storici[c].iloc[-1] - storici[c].iloc[-2]) / storici[c].iloc[-2]
+    lista_leader = ["NVIDIA_USA", "AMD_USA", "TSMC_USA", "ASML_USA", "INTEL_USA"]
+    for c in lista_leader:
+        if c in storici and len(storici[c]) >= 5:
+            var_c = (storici[c].iloc[-1] - storici[c].iloc[-5]) / storici[c].iloc[-5]
             spinta_chips += var_c
             divisore_chips += 1
     spinta_micro = (spinta_chips / divisore_chips) if divisore_chips > 0 else 0
@@ -103,9 +93,9 @@ def calcola_previsione_globale_ampliata(asset_target, prezzi_attuali, var_percen
     prezzo_attuale = prezzi_attuali[asset_target]
     prezzo_previsto = (prezzo_attuale + (pendenza * 5)) * (1 + spinta_macro + spinta_micro)
     
-    if prezzo_previsto > prezzo_attuale and prezzo_attuale > ema_15m:
+    if prezzo_previsto > prezzo_attuale and prezzo_attuale > ema_15m and pendenza > 0:
         segnale = "🟢 RIALZO (Conferma macro e del paniere leader)"
-    elif prezzo_previsto < prezzo_attuale and prezzo_attuale < ema_15m:
+    elif prezzo_previsto < prezzo_attuale and prezzo_attuale < ema_15m and pendenza < 0:
         segnale = "🔴 RIBASSO (Pressione ribassista globale del paniere)"
     else:
         segnale = "🟡 STANDBY (Fase laterale o flussi contrastanti USA/Milano)"
@@ -123,7 +113,7 @@ if st.button("🔄 Forza Aggiornamento Istantaneo"):
 with st.spinner("Sincronizzazione orari e analisi del paniere mondiale chip..."):
     prezzi, var_pct, storici = carica_dati_globali_completi()
 
-# INTERFACCIA COMPLETA AUTO-RIGENERANTE (Resta attiva anche se Yahoo rallenta)
+# INTERFACCIA GRAFICA AUTOMATICA
 st.subheader("📊 Monitor dei Mercati Internazionali")
 col_it, col_us, col_fut = st.columns(3)
 
