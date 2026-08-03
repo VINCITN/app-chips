@@ -3,7 +3,10 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-# 1. DOWNLOAD GLOBAL DATA CON RECUPERO STORICO REALE A 5 GIORNI (Massima stabilità)
+# 1. QUESTA DEVE ESSERE LA PRIMISSIMA ISTRUZIONE STREAMLIT DELLO SCRIPT
+st.set_page_config(title="AI Quant Chips Tracker", layout="wide")
+
+# 2. DOWNLOAD GLOBAL DATA CON RECUPERO STORICO REALE A 5 GIORNI (Massima stabilità)
 @st.cache_data(ttl=30) # Memorizza i dati per 30 secondi per non sovraccaricare la rete
 def carica_dati_completi():
     # Mappatura dei ticker su tutte le borse globali (Milano, USA, Taiwan)
@@ -45,7 +48,7 @@ def carica_dati_completi():
             
     return prezzi_attuali, var_percentuali
 
-# 2. ALGORITMO QUANTITATIVO ADATTIVO (Regressione su Pesi Globali e Indici)
+# 3. ALGORITMO QUANTITATIVO ADATTIVO (Regressione su Pesi Globali e Indici)
 def calcola_previsione_globale_ampliata(asset_target, prezzi_attuali, var_pct):
     # Se il server non ha risposto, l'algoritmo entra in modalità Standby protetta
     if prezzi_attuali.get(asset_target, 0) == 0:
@@ -75,8 +78,6 @@ def calcola_previsione_globale_ampliata(asset_target, prezzi_attuali, var_pct):
         return "Ricalcolo algoritmo...", prezzi_attuali.get(asset_target, 0)
 
 # --- INTERFACCIA GRAFICA STREAMLIT ---
-st.set_page_config(title="AI Quant Chips Tracker", layout="wide")
-
 st.title("🤖 AI Quant Trader - Semiconduttori & Difesa")
 st.write("Plancia di comando predittiva. Analisi delle correlazioni tra Piazza Affari, Wall Street e Taiwan.")
 
@@ -121,7 +122,7 @@ else:
             st.error(f"**PREVISIONE**: {segnale_stm}")
         else:
             st.warning(f"**PREVISIONE**: {segnale_stm}")
-        st.info(f"Target Price Stimato (Prossime Ore): **{target_stm:.2f} €**")
+        st.info(f"Target Price Estimato (Prossime Ore): **{target_stm:.2f} €**")
         
     with col_ldo:
         st.subheader("Titolo Target: LEONARDO")
@@ -132,6 +133,6 @@ else:
             st.error(f"**PREVISIONE**: {segnale_ldo}")
         else:
             st.warning(f"**PREVISIONE**: {segnale_ldo}")
-        st.info(f"Target Price Stimato (Prossime Ore): **{target_ldo:.2f} €**")
+        st.info(f"Target Price Estimato (Prossime Ore): **{target_ldo:.2f} €**")
 
 st.caption("I dati storici e le stime algoritmiche non costituiscono sollecitazione al pubblico risparmio.")
