@@ -1,60 +1,71 @@
 import streamlit as st
-import yfinance as yf
+from yahooquery import Ticker
 import pandas as pd
 import numpy as np
 
-# 1. DOWNLOAD GLOBAL DATA CON RECUPERO STORICO REALE A 5 GIORNI
-@st.cache_data(ttl=30) # Cache rapida a 30 secondi
+# 1. DOWNLOAD GLOBAL DATA CON YAHOOQUERY (Anti-Blocco IP definitivo)
+@st.cache_data(ttl=30) # Aggiornamento rapido ogni 30 secondi
 def carica_dati_globali_completi():
-    tickers = {
-        "STM_MILANO": "STM.MI",
-        "LEONARDO_MILANO": "LDO.MI",
-        "NVIDIA_USA": "NVDA",
-        "AMD_USA": "AMD",
-        "TSMC_USA": "TSM",
-        "ASML_USA": "ASML",
-        "INTEL_USA": "INTC",
-        "FUTURE_NASDAQ": "NQ=F",
-        "FUTURE_FTSEMIB": "STXE.MI"
+    # Lista ordinata dei simboli di borsa richiesti
+    simboli = ["STM.MI", "LDO.MI", "NVDA", "AMD", "TSM", "ASML", "INTC", "NQ=F", "STXE.MI"]
+    
+    # Mappatura per rinominare i dati all'interno del programma
+    mappa_nomi = {
+        "STM.MI": "STM_MILANO",
+        "LDO.MI": "LEONARDO_MILANO",
+        "NVDA": "NVIDIA_USA",
+        "AMD": "AMD_USA",
+        "TSM": "TSMC_USA",
+        "ASML": "ASML_USA",
+        "INTC": "INTEL_USA",
+        "NQ=F": "FUTURE_NASDAQ",
+        "STXE.MI": "FUTURE_FTSEMIB"
     }
     
     prezzi_correnti = {}
     var_percentuali = {}
     storici_minuto = {}
     
-    yf.set_tz_cache_location(None) # Evita i blocchi di fuso orario su Streamlit
-    
-    for nome, ticker in tickers.items():
-        try:
-            ticker_obj = yf.Ticker(ticker)
-            # USIAMO "5d" AL POSTO DI "1d" per evitare tabelle vuote a borsa chiusa o nel weekend
-            storico = ticker_obj.history(period="5d", interval="1m", prepost=True)
+    try:
+        # Chiamata aggregata a YahooQuery (Interroga tutti i simboli insieme per massima stabilità)
+        t = Ticker(simboli, asynchronous=False)
+        
+        # Recuperiamo i prezzi correnti dell'ultima sessione
+        dati_live = t.price
+        
+        # Recuperiamo la cronologia intraday al minuto (ultimi 2 giorni per sicurezza)
+        storico_completo = t.history(period="2d", interval="1m")
+        
+        for sim in simboli:
+            nome_interno = mappa_nomi[sim]
             
-            if not storico.empty:
-                storico_pulito = storico['Close'].dropna()
-                if len(storico_pulito) > 1:
-                    prezzi_correnti[nome] = storico_pulito.iloc[-1]
-                    storici_minuto[nome] = storico_pulito
-                    
-                    # Calcolo della variazione percentuale prendendo l'apertura effettiva del set dati
-                    prezzo_apertura = storico['Open'].dropna().iloc[0] if len(storico['Open'].dropna()) > 0 else storico_pulito.iloc[-1]
-                    if prezzo_apertura > 0:
-                        var_percentuali[nome] = ((storico_pulito.iloc[-1] - prezzo_apertura) / prezzo_apertura) * 100
-                    else:
-                        var_percentuali[nome] = 0.0
-                else:
-                    prezzi_correnti[nome] = storico_pulito.iloc[-1] if len(storico_pulito) == 1 else 0.0
-                    var_percentuali[nome] = 0.0
+            # Estrarre il prezzo corrente e la variazione percentuale
+            if isinstance(dati_live, dict) and sim in dati_live and 'regularMarketPrice' in dati_live[sim]:
+                info_prezzo = dati_live[sim]
+                prezzi_correnti[nome_interno] = info_prezzo.get('regularMarketPrice', 0.0)
+                var_percentuali[nome_interno] = info_prezzo.get('regularMarketChangePercent', 0.0) * 100 if info_prezzo.get('regularMarketChangePercent') is not None else 0.0
             else:
-                prezzi_correnti[nome] = 0.0
-                var_percentuali[nome] = 0.0
-        except Exception:
-            prezzi_correnti[nome] = 0.0
-            var_percentuali[nome] = 0.0
+                prezzi_correnti[nome_interno] = 0.0
+                var_percentuali[nome_interno] = 0.0
+                
+            # Estrarre la serie storica dei prezzi al minuto per l'algoritmo
+            if not storico_completo.empty and sim in storico_completo.index.levels[0]:
+                serie_titolo = storico_completo.loc[sim]['close'].dropna()
+                storici_minuto[nome_interno] = serie_titolo
+            else:
+                storici_minuto[nome_interno] = pd.Series(dtype=float)
+                
+    except Exception:
+        # Se anche i server di backup falliscono, lo scudo azzera per sicurezza senza crashare
+        for sim in simboli:
+            nome_interno = mappa_nomi[sim]
+            prezzi_correnti[nome_interno] = 0.0
+            var_percentuali[nome_interno] = 0.0
+            storici_minuto[nome_interno] = pd.Series(dtype=float)
             
     return prezzi_correnti, var_percentuali, storici_minuto
 
-# 2. ALGORITMO QUANTITATIVO ADATTIVO (Funziona sempre)
+# 2. ALGORITMO QUANTITATIVO ADATTIVO (Funziona anche a mercati chiusi)
 def calcola_previsione_globale_ampliata(asset_target, prezzi_attuali, var_percentuali, storici):
     if asset_target not in storici or len(storici[asset_target]) < 5 or prezzi_attuali.get(asset_target, 0) == 0:
         return "⏳ CALIBRAZIONE (In attesa di flussi)", 0.0, 0.0
@@ -62,14 +73,12 @@ def calcola_previsione_globale_ampliata(asset_target, prezzi_attuali, var_percen
     serie_minuti = storici[asset_target]
     prezzi_target = serie_minuti.values
     
-    # Calcolo indicatori sulle candele disponibili
     ema_15m = serie_minuti.tail(15).ewm(span=15, adjust=False).mean().iloc[-1] if len(serie_minuti) >= 15 else prezzi_target[-1]
     
     y = prezzi_target[-15:] if len(prezzi_target) >= 15 else prezzi_target
     x = np.arange(len(y))
     pendenza, intercetta = np.polyfit(x, y, 1) if len(y) > 1 else (0, 0)
     
-    # Impulso Futures (Ultimi minuti disponibili)
     spinta_futures = 0.0
     divisore_futures = 0
     for f in ["FUTURE_NASDAQ", "FUTURE_FTSEMIB"]:
@@ -79,7 +88,6 @@ def calcola_previsione_globale_ampliata(asset_target, prezzi_attuali, var_percen
             divisore_futures += 1
     spinta_macro = (spinta_futures / divisore_futures) if divisore_futures > 0 else 0
     
-    # Impulso Basket Semiconduttori Globali
     spinta_chips = 0.0
     divisore_chips = 0
     lista_leader = ["NVIDIA_USA", "AMD_USA", "TSMC_USA", "ASML_USA", "INTEL_USA"]
