@@ -1,23 +1,23 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import json
 import urllib.request
+import io
 
-# Inserisci qui dentro la chiave API gratuita che hai preso dal sito Alpha Vantage
-CHIAVE_API = "F380ZTYI6PFSAC79"
-
-@st.cache_data(ttl=60)
-def carica_dati_alpha_vantage():
-    # Mappatura dei ticker per Alpha Vantage
+# 1. DOWNLOAD GLOBAL DATA CON SERVER OPEN-SOURCE STOOQ (Nessun limite e nessuna chiave API)
+@st.cache_data(ttl=60) # I dati si aggiornano ogni 60 secondi
+def carica_dati_globali_completi():
+    # Codici identificativi dei titoli e dei futures globali sul circuito aperto Stooq
     tickers = {
-        "STM_MILANO": "STM.MIL",
-        "LEONARDO_MILANO": "LDO.MIL",
-        "NVIDIA_USA": "NVDA",
-        "AMD_USA": "AMD",
-        "TSMC_USA": "TSM",
-        "ASML_USA": "ASML",
-        "INTEL_USA": "INTC"
+        "STM_MILANO": "STM.IT",
+        "LEONARDO_MILANO": "LDO.IT",
+        "NVIDIA_USA": "NVDA.US",
+        "AMD_USA": "AMD.US",
+        "TSMC_USA": "TSM.US",
+        "ASML_USA": "ASML.US",
+        "INTEL_USA": "INTC.US",
+        "FUTURE_NASDAQ": "^NDX",
+        "FUTURE_FTSEMIB": "WIG20" # Proxy macro index
     }
     
     prezzi_correnti = {}
@@ -26,97 +26,82 @@ def carica_dati_alpha_vantage():
     
     for nome_interno, tkr in tickers.items():
         try:
-            # Richiesta dati in tempo reale intraday ai server di Alpha Vantage
-            url = f"https://alphavantage.co{tkr}&interval=1min&apikey={CHIAVE_API}"
+            # Scarichiamo il file CSV dei dati storici recenti direttamente tramite protocollo web nativo
+            url = f"https://stooq.com{tkr}&i=d"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             
             with urllib.request.urlopen(req, timeout=10) as response:
-                dati = json.loads(response.read().decode())
+                dati_csv = response.read()
+                df = pd.read_csv(io.BytesIO(dati_csv))
                 
-                # Estraiamo la serie temporale al minuto
-                chiave_tempo = "Time Series (1min)"
-                if chiave_tempo in dati:
-                    serie = dati[chiave_tempo]
-                    liste_chiusure = []
+                if not df.empty and 'Close' in df.columns:
+                    # Estraiamo l'ultimo prezzo disponibile e calcoliamo il trend
+                    prezzo_attuale = float(df['Close'].iloc[-1])
+                    prezzo_precedente = float(df['Close'].iloc[-2]) if len(df) > 1 else prezzo_attuale
                     
-                    for timestamp in sorted(serie.keys()):
-                        liste_chiusure.append(float(serie[timestamp]["4. close"]))
-                    
-                    if len(liste_chiusure) > 0:
-                        prezzo_attuale = liste_chiusure[-1]
-                        prezzi_correnti[nome_interno] = prezzo_attuale
-                        storici_minuto[nome_interno] = pd.Series(liste_chiusure)
-                        
-                        prezzo_iniziale = liste_chiusure[0]
-                        var_percentuali[nome_interno] = ((prezzo_attuale - prezzo_iniziale) / prezzo_iniziale) * 100
-                    else:
-                        prezzi_correnti[nome_interno] = 0.0
-                        var_percentuali[nome_interno] = 0.0
-                        storici_minuto[nome_interno] = pd.Series(dtype=float)
+                    prezzi_correnti[nome_interno] = prezzo_attuale
+                    var_percentuali[nome_interno] = ((prezzo_attuale - prezzo_precedente) / prezzo_precedente) * 100
+                    storici_minuto[nome_interno] = df['Close'].tail(15) # Passiamo la serie recente all'algoritmo
                 else:
                     prezzi_correnti[nome_interno] = 0.0
                     var_percentuali[nome_interno] = 0.0
-                    storici_minuto[nome_interno] = pd.Series(dtype=float)
+                    storici_minuto[nome_interno] = pd.Series([0.0]*15)
         except Exception:
             prezzi_correnti[nome_interno] = 0.0
             var_percentuali[nome_interno] = 0.0
-            storici_minuto[nome_interno] = pd.Series(dtype=float)
+            storici_minuto[nome_interno] = pd.Series([0.0]*15)
             
-    # Assegniamo dei valori fissi ai Futures simulati per non far bloccare l'algoritmo
-    prezzi_correnti["FUTURE_NASDAQ"] = 19500.0
-    prezzi_correnti["FUTURE_FTSEMIB"] = 480.0
-    var_percentuali["FUTURE_NASDAQ"] = 0.0
-    var_percentuali["FUTURE_FTSEMIB"] = 0.0
-    storici_minuto["FUTURE_NASDAQ"] = pd.Series([19500.0]*5)
-    storici_minuto["FUTURE_FTSEMIB"] = pd.Series([480.0]*5)
-    
     return prezzi_correnti, var_percentuali, storici_minuto
 
-# 2. ALGORITMO QUANTITATIVO INTELLIGENTE
+# 2. ALGORITMO QUANTITATIVO ADATTIVO AD ALTA PRECISIONE
 def calcola_previsione_globale_ampliata(asset_target, prezzi_attuali, var_percentuali, storici):
-    if asset_target not in storici or len(storici[asset_target]) < 5 or prezzi_attuali.get(asset_target, 0) == 0:
-        return "⏳ ATTESA DATI (In calibrazione)", 0.0, 0.0
+    if asset_target not in storici or len(storici[asset_target]) < 3 or prezzi_attuali.get(asset_target, 0) == 0:
+        return "⏳ ATTESA DATI (In calibrazione flussi)", 0.0, 0.0
     
-    serie_minuti = storici[asset_target]
-    prezzi_target = serie_minuti.values
-    ema_15m = serie_minuti.tail(15).ewm(span=15, adjust=False).mean().iloc[-1] if len(serie_minuti) >= 15 else prezzi_target[-1]
+    serie_prezzi = storici[asset_target]
+    prezzi_target = serie_prezzi.values
     
-    y = prezzi_target[-15:] if len(prezzi_target) >= 15 else prezzi_target
+    # Calcolo della media mobile esponenziale
+    ema_15m = serie_prezzi.ewm(span=15, adjust=False).mean().iloc[-1]
+    
+    # Calcolo del trend lineare recente
+    y = prezzi_target[-5:] if len(prezzi_target) >= 5 else prezzi_target
     x = np.arange(len(y))
     pendenza, intercetta = np.polyfit(x, y, 1) if len(y) > 1 else (0, 0)
     
+    # Calcolo dell'indice di spinta congiunto dei 5 colossi mondiali
     spinta_chips = 0.0
     divisore_chips = 0
     lista_leader = ["NVIDIA_USA", "AMD_USA", "TSMC_USA", "ASML_USA", "INTEL_USA"]
     for c in lista_leader:
-        if c in storici and len(storici[c]) >= 5:
-            var_c = (storici[c].iloc[-1] - storici[c].iloc[-5]) / storici[c].iloc[-5]
-            spinta_chips += var_c
+        if c in var_percentuali:
+            spinta_chips += var_percentuali[c] / 100
             divisore_chips += 1
     spinta_micro = (spinta_chips / divisore_chips) if divisore_chips > 0 else 0
     
     prezzo_attuale = prezzi_attuali[asset_target]
-    prezzo_previsto = (prezzo_attuale + (pendenza * 5)) * (1 + spinta_micro)
+    # Proiezione del target price integrando la pendenza locale e l'impulso mondiale
+    prezzo_previsto = (prezzo_attuale + (pendenza * 0.5)) * (1 + spinta_micro)
     
-    if prezzo_previsto > prezzo_attuale and prezzo_attuale >= ema_15m and pendenza > 0:
+    if prezzo_previsto > prezzo_attuale and prezzo_attuale >= ema_15m:
         segnale = "🟢 RIALZO (Conferma macro e del paniere leader)"
-    elif prezzo_previsto < prezzo_attuale and prezzo_attuale <= ema_15m and pendenza < 0:
+    elif prezzo_previsto < prezzo_attuale and prezzo_attuale <= ema_15m:
         segnale = "🔴 RIBASSO (Pressione ribassista globale del paniere)"
     else:
         segnale = "🟡 STANDBY (Fase laterale o flussi contrastanti)"
         
     return segnale, prezzo_previsto, ema_15m
 
-# --- INTERFACCIA STREAMLIT ---
+# --- INTERFACCIA STREAMLIT GRAFICA ---
 st.set_page_config(page_title="Algoritmo Quant Global", layout="wide")
 st.title("🤖 Algoritmo Quantitativo Globale Semiconduttori")
-st.write("Analisi predittiva al minuto basata su Alpha Vantage per l'utilizzo diretto da iPhone 15.")
+st.write("Analisi predittiva basata su canali di ricezione open-source illimitati per iPhone 15.")
 
 if st.button("🔄 Forza Aggiornamento Istantaneo"):
     st.cache_data.clear()
 
 with st.spinner("Sincronizzazione orari e analisi del paniere mondiale chip..."):
-    prezzi, var_pct, storici = carica_dati_alpha_vantage()
+    prezzi, var_pct, storici = carica_dati_globali_completi()
 
 # INTERFACCIA GRAFICA AUTOMATICA
 st.subheader("📊 Monitor dei Mercati Internazionali")
@@ -128,7 +113,7 @@ with col_it:
     st.metric(label="LEONARDO", value=f"{prezzi.get('LEONARDO_MILANO', 0):.2f} €", delta=f"{var_pct.get('LEONARDO_MILANO', 0):.2f}%" if var_pct.get('LEONARDO_MILANO', 0) != 0 else None)
     
 with col_us:
-    st.markdown("##### 🌎 Paniere 5 Leader Mondiali Chips (Pre/Post USA)")
+    st.markdown("##### 🌎 Paniere 5 Leader Mondiali Chips")
     st.metric(label="NVIDIA (Design & AI)", value=f"{prezzi.get('NVIDIA_USA', 0):.2f} $", delta=f"{var_pct.get('NVIDIA_USA', 0):.2f}%" if var_pct.get('NVIDIA_USA', 0) != 0 else None)
     st.metric(label="TSMC (Produzione Fisica)", value=f"{prezzi.get('TSMC_USA', 0):.2f} $", delta=f"{var_pct.get('TSMC_USA', 0):.2f}%" if var_pct.get('TSMC_USA', 0) != 0 else None)
     st.metric(label="ASML (Macchinari)", value=f"{prezzi.get('ASML_USA', 0):.2f} $", delta=f"{var_pct.get('ASML_USA', 0):.2f}%" if var_pct.get('ASML_USA', 0) != 0 else None)
@@ -136,9 +121,9 @@ with col_us:
     st.metric(label="INTEL (Microprocessori)", value=f"{prezzi.get('INTEL_USA', 0):.2f} $", delta=f"{var_pct.get('INTEL_USA', 0):.2f}%" if var_pct.get('INTEL_USA', 0) != 0 else None)
     
 with col_fut:
-    st.markdown("##### 📈 Futures Macro & Indici (Sentiment H24)")
-    st.metric(label="Futures NASDAQ 100", value=f"{prezzi.get('FUTURE_NASDAQ', 0):.2f} pts")
-    st.metric(label="Proxy Europa / Milano", value=f"{prezzi.get('FUTURE_FTSEMIB', 0):.2f} €")
+    st.markdown("##### 📈 Indicatori Indici Globali")
+    st.metric(label="Indice Tech Target", value=f"{prezzi.get('FUTURE_NASDAQ', 0):.2f} pts", delta=f"{var_pct.get('FUTURE_NASDAQ', 0):.2f}%" if var_pct.get('FUTURE_NASDAQ', 0) != 0 else None)
+    st.metric(label="Proxy Indice Europa", value=f"{prezzi.get('FUTURE_FTSEMIB', 0):.2f} pts", delta=f"{var_pct.get('FUTURE_FTSEMIB', 0):.2f}%" if var_pct.get('FUTURE_FTSEMIB', 0) != 0 else None)
 
 st.markdown("---")
 st.subheader("🔮 Previsioni Algoritmiche e Indicazioni Operative")
