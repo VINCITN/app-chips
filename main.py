@@ -41,11 +41,11 @@ with st.spinner("Sincronizzazione canali integrati..."):
 
 # Fallback di sicurezza se Yahoo è momentaneamente offline
 if prezzi.get("NVIDIA_USA", 0) == 0:
-    prezzi = {"NVIDIA_USA": 208.13, "TSMC_TAIWAN": 410.49, "INFINEON_GER": 63.70, "TEXAS_USA": 273.50, "STM_REF": 46.31, "LDO_REF": 56.52}
-    var_pct = {"NVIDIA_USA": 3.68, "TSMC_TAIWAN": 1.54, "INFINEON_GER": 2.59, "TEXAS_USA": -0.81, "STM_REF": 2.25, "LDO_REF": 3.31}
+    prezzi = {"NVIDIA_USA": 208.13, "TSMC_TAIWAN": 410.49, "INFINEON_GER": 63.70, "TEXAS_USA": 273.50, "STM_REF": 46.82, "LDO_REF": 56.74}
+    var_pct = {"NVIDIA_USA": 3.68, "TSMC_TAIWAN": 1.54, "INFINEON_GER": 2.59, "TEXAS_USA": -0.81, "STM_REF": 3.38, "LDO_REF": 3.71}
 
 # =========================================================================
-# SEZIONE 1: 📊 QUOTAZIONE IN TEMPO REALE (LINK DIRETTI ISTITUZIONALI)
+# SEZIONE 1: 📊 QUOTAZIONE IN TEMPO REALE (LINK RICHIESTI DA TE)
 # =========================================================================
 st.markdown("## 1. 📊 Quotazioni Ufficiali in Tempo Reale")
 st.write("Clicca sui pulsanti sottostanti per aprire i tabelloni telematici di riferimento in tempo reale su Borsa Italiana:")
@@ -53,7 +53,7 @@ st.write("Clicca sui pulsanti sottostanti per aprire i tabelloni telematici di r
 col_link_stm, col_link_ldo = st.columns(2)
 
 with col_link_stm:
-    # CORREZIONE: Link ufficiale esatto a Borsa Italiana per STMicroelectronics
+    # Pulsante ufficiale per STMicroelectronics con il link esatto da te fornito
     st.link_button(
         "📈 Apri la quotazione reale di STMicroelectronics (STM)", 
         "https://www.borsaitaliana.it/borsa/azioni/scheda/NL0000226223-MTAA.html?lang=it",
@@ -62,10 +62,10 @@ with col_link_stm:
     )
     
 with col_link_ldo:
-    # Link ufficiale esatto a Borsa Italiana per Leonardo
+    # Pulsante ufficiale per Leonardo con il secondo link differente da te fornito
     st.link_button(
         "🛡️ Apri la quotazione reale di Leonardo (LDO)", 
-        "https://borsaitaliana.it",
+        "https://www.borsaitaliana.it/borsa/azioni/scheda/IT0003856405-MTAA.html?lang=it",
         use_container_width=True,
         type="primary"
     )
@@ -101,7 +101,7 @@ col_stm, col_ldo = st.columns(2)
 
 with col_stm:
     st.subheader("🎯 Target Asset: STMicroelectronics")
-    base_stm = prezzi["STM_REF"] if prezzi["STM_REF"] > 0 else 46.31
+    base_stm = prezzi["STM_REF"] if prezzi["STM_REF"] > 0 else 46.82
     target_stimat_stm = base_stm * 1.15 if spinta_macro_chip > 0 else base_stm * 0.90
     
     st.success("### INDICAZIONE: COMPRARE (BUY)")
@@ -111,7 +111,7 @@ with col_stm:
 
 with col_ldo:
     st.subheader("🎯 Target Asset: Leonardo")
-    base_ldo = prezzi["LDO_REF"] if prezzi["LDO_REF"] > 0 else 56.52
+    base_ldo = prezzi["LDO_REF"] if prezzi["LDO_REF"] > 0 else 56.74
     target_stimat_ldo = base_ldo * 1.05 if var_pct["LDO_REF"] > 2.5 else base_ldo * 0.98
     
     st.warning("### INDICAZIONE: TENERE (HOLD)")
