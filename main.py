@@ -81,13 +81,13 @@ else:
 st.markdown("## 1. 📊 Quotazione Reale (Borsa Italiana)")
 
 # Prepariamo la tabella formattata
+# Modifica il blocco della tabella con questo testo corretto:
 tabella_milano = pd.DataFrame({
     "Titolo Target": ["STMicroelectronics (STM.MI)", "Leonardo (LDO.MI)"],
     "Prezzo Ultimo Contratto": [f"{prezzi['STM_MILANO']:.2f} €", f"{prezzi['LEONARDO_MILANO']:.2f} €"],
-    "Variazione %": [f"{var_pct['STM_MILANO']}:+.2f}%", f"{var_pct['LEONARDO_MILANO']}:+.2f}%"],
+    "Variazione %": [f"{var_pct['STM_MILANO']:+.2f}%", f"{var_pct['LEONARDO_MILANO']:+.2f}%"],
     "Stato Mercato": [stati['STM_MILANO'], stati['LEONARDO_MILANO']]
 })
-st.table(tabella_milano)
 
 st.markdown("---")
 
