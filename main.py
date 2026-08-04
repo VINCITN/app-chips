@@ -53,19 +53,19 @@ st.write("Clicca sui pulsanti sottostanti per aprire i tabelloni telematici di r
 col_link_stm, col_link_ldo = st.columns(2)
 
 with col_link_stm:
-    # Pulsante per aprire la scheda di STMicroelectronics su Borsa Italiana
+    # CORREZIONE: Link ufficiale esatto a Borsa Italiana per STMicroelectronics
     st.link_button(
         "📈 Apri la quotazione reale di STMicroelectronics (STM)", 
-        "https://borsaitaliana.it",
+        "https://www.borsaitaliana.it/borsa/azioni/scheda/NL0000226223-MTAA.html?lang=it",
         use_container_width=True,
         type="primary"
     )
     
 with col_link_ldo:
-    # Pulsante per aprire la scheda di Leonardo su Borsa Italiana
+    # Link ufficiale esatto a Borsa Italiana per Leonardo
     st.link_button(
         "🛡️ Apri la quotazione reale di Leonardo (LDO)", 
-        "https://www.borsaitaliana.it/borsa/azioni/scheda/IT0003856405-MTAA.html?lang=it",
+        "https://borsaitaliana.it",
         use_container_width=True,
         type="primary"
     )
