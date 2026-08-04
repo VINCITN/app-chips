@@ -15,6 +15,8 @@ if st.button("🔄 Forza Aggiornamento Dati"):
 # --- 1. FUNZIONE DOWNLOAD DATI ---
 @st.cache_data(ttl=300)
 def scarica_dati_mercato():
+    # --- 1. FUNZIONE DOWNLOAD DATI POTENZIATA (RECUPERO DIRETTO SENZA BLOCCHI) ---
+def scarica_dati_mercato():
     tickers = {
         "STM_MILANO": "STM.MI",
         "LEONARDO_MILANO": "LDO.MI",
@@ -29,30 +31,24 @@ def scarica_dati_mercato():
     
     for chiave, tkr in tickers.items():
         try:
-            ticker_obj = yf.Ticker(tkr)
-            dati_storici = ticker_obj.history(period="2d")
-            if len(dati_storici) >= 2:
-                prezzi[chiave] = dati_storici['Close'].iloc[-1]
-                var_pct[chiave] = ((dati_storici['Close'].iloc[-1] - dati_storici['Close'].iloc[-2]) / dati_storici['Close'].iloc[-2]) * 100
+            # Forziamo il download della sessione odierna (1 giorno con intervallo a 1 minuto)
+            ticket_obj = yf.Ticker(tkr)
+            dati_live = ticket_obj.history(period="1d", interval="1m")
+            
+            if not dati_live.empty:
+                # Prende l'ultimo identico prezzo battuto sul mercato
+                prezzi[chiave] = float(dati_live['Close'].iloc[-1])
+                
+                # Calcola la variazione percentuale rispetto alla chiusura del giorno prima
+                prezzo_chiusura_prec = ticket_obj.info.get('previousClose', prezzi[chiave])
+                var_pct[chiave] = ((prezzi[chiave] - prezzo_chiusura_prec) / prezzo_chiusura_prec) * 100
             else:
-                prezzi[chiave] = 0.0
-                var_pct[chiave] = 0.0
+                prezzi[chiave], var_pct[chiave] = 0.0, 0.0
         except Exception:
-            prezzi[chiave] = 0.0
-            var_pct[chiave] = 0.0
+            prezzi[chiave], var_pct[chiave] = 0.0, 0.0
             
     return prezzi, var_pct
 
-with st.spinner("Sincronizzazione flussi finanziari dai mercati internazionali..."):
-    prezzi, var_pct = scarica_dati_mercato()
-
-# --- BLOCCO DI SICUREZZA CON DATI REALI AGGIORNATI ---
-# Se l'API sul cloud fallisce, forziamo l'inserimento dei dati reali correnti
-if prezzi.get("STM_MILANO", 0) == 0 or prezzi.get("LEONARDO_MILANO", 0) == 0:
-    st.info("🌙 Connessione API in calibrazione. Visualizzazione delle quotazioni della Borsa Italiana.")
-    prezzi["STM_MILANO"] = 46.35
-    var_pct["STM_MILANO"] = 2.21
-    prezzi["LEONARDO_MILANO"] = 56.68
     var_pct["LEONARDO_MILANO"] = 3.14
     
     # Dati Giganti Chip
