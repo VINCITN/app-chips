@@ -4,17 +4,17 @@ import pandas as pd
 import time
 
 # Configurazione della pagina Streamlit
-st.set_page_config(page_title="AI Quant Trader - Hybrid Feed", layout="wide")
+st.set_page_config(page_title="AI Quant Trader - Google Finance Feed", layout="wide")
 
 # --- AUTO-REFRESH AUTOMATICO OGNI 30 SECONDI ---
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = time.time()
 
 st.title("🤖 AI Quant Trader - Semiconduttori & Difesa")
-st.write("Plancia di comando predittiva. Verifica il prezzo in tempo reale sui canali ufficiali e analizza i segnali macro dell'IA.")
+st.write("Plancia di comando predittiva. Verifica il prezzo in tempo reale su Google Finance e analizza i segnali macro dell'IA.")
 st.caption("🔄 Sincronizzazione automatica attiva (Aggiornamento flussi macro ogni 30 secondi).")
 
-# --- 1. FUNZIONE DOWNLOAD GRATUITA E LEGGERA PER IL SENTIMENT ---
+# --- FUNZIONE DOWNLOAD PER IL SENTIMENT DEI CHIP GLOBALIO ---
 @st.cache_data(ttl=15)
 def scarica_sentiment_chip():
     tickers = {
@@ -22,7 +22,7 @@ def scarica_sentiment_chip():
         "TSMC_TAIWAN": "TSM",
         "INFINEON_GER": "IFX.DE",
         "TEXAS_USA": "TXN",
-        "STM_REF": "STM.MI",      # Utilizzati come base statistica per l'IA
+        "STM_REF": "STM.MI",      
         "LDO_REF": "LDO.MI"
     }
     prezzi, var_pct = {}, {}
@@ -45,27 +45,27 @@ if prezzi.get("NVIDIA_USA", 0) == 0:
     var_pct = {"NVIDIA_USA": 3.68, "TSMC_TAIWAN": 1.54, "INFINEON_GER": 2.59, "TEXAS_USA": -0.81, "STM_REF": 2.25, "LDO_REF": 3.31}
 
 # =========================================================================
-# SEZIONE 1: 📊 QUOTAZIONE IN TEMPO REALE (LINK ESTERNI BORSA ITALIANA)
+# SEZIONE 1: 📊 QUOTAZIONE IN TEMPO REALE (PAGINE ESCLUSIVE GOOGLE FINANCE)
 # =========================================================================
 st.markdown("## 1. 📊 Quotazione Ufficiale in Tempo Reale")
-st.write("Clicca sui pulsanti sottostanti per aprire le schede ufficiali di Borsa Italiana al millisecondo senza ritardi di trasmissione:")
+st.write("Clicca sui pulsanti per aprire la schermata isolata di Google Finance per ciascun titolo, senza le tabelle di Borsa Italiana:")
 
 col_link_stm, col_link_ldo = st.columns(2)
 
 with col_link_stm:
-    # Genera un link con grafica a pulsante per la scheda di STMicroelectronics su Borsa Italiana
+    # Pulsante per aprire ESCLUSIVAMENTE la pagina di STMicroelectronics su Google Finance
     st.link_button(
-        "📈 Apri STM.MI su Borsa Italiana (Tempo Reale)", 
-        "https://borsaitaliana.it",
+        "📈 Apri SOLO STM su Google Finance (Real-Time)", 
+        "https://google.com",
         use_container_width=True,
         type="primary"
     )
     
 with col_link_ldo:
-    # Genera un link con grafica a pulsante per la scheda di Leonardo su Borsa Italiana
+    # Pulsante per aprire ESCLUSIVAMENTE la pagina di Leonardo su Google Finance
     st.link_button(
-        "🛡️ Apri LDO.MI su Borsa Italiana (Tempo Reale)", 
-        "https://borsaitaliana.it",
+        "🛡️ Apri SOLO LEONARDO su Google Finance (Real-Time)", 
+        "https://google.com",
         use_container_width=True,
         type="primary"
     )
@@ -101,7 +101,6 @@ col_stm, col_ldo = st.columns(2)
 
 with col_stm:
     st.subheader("🎯 Target Asset: STMicroelectronics")
-    # Calcola il target basandosi sull'ultimo prezzo disponibile di Yahoo
     base_stm = prezzi["STM_REF"] if prezzi["STM_REF"] > 0 else 46.31
     target_stimat_stm = base_stm * 1.15 if spinta_macro_chip > 0 else base_stm * 0.90
     
@@ -122,6 +121,6 @@ with col_ldo:
 
 st.caption("I dati storici ed i segnali algoritmici simulati sono elaborati a scopo puramente didattico e non costituiscono sollecitazione al pubblico risparmio.")
 
-# Refresh automatico dello schermo a 30 secondi
+# Refresh automatico dello schermo ogni 30 secondi
 time.sleep(30)
 st.rerun()
