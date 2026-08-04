@@ -4,14 +4,14 @@ import pandas as pd
 import time
 
 # Configurazione della pagina Streamlit
-st.set_page_config(page_title="AI Quant Trader - Google Finance Feed", layout="wide")
+st.set_page_config(page_title="AI Quant Trader - Professional Feed", layout="wide")
 
 # --- AUTO-REFRESH AUTOMATICO OGNI 30 SECONDI ---
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = time.time()
 
 st.title("🤖 AI Quant Trader - Semiconduttori & Difesa")
-st.write("Plancia di comando predittiva. Verifica il prezzo in tempo reale su Google Finance e analizza i segnali macro dell'IA.")
+st.write("Plancia di comando predittiva. Monitoraggio dei flussi macroeconomici globali dei semiconduttori.")
 st.caption("🔄 Sincronizzazione automatica attiva (Aggiornamento flussi macro ogni 30 secondi).")
 
 # --- FUNZIONE DOWNLOAD PER IL SENTIMENT ---
@@ -45,43 +45,29 @@ if prezzi.get("NVIDIA_USA", 0) == 0:
     var_pct = {"NVIDIA_USA": 3.68, "TSMC_TAIWAN": 1.54, "INFINEON_GER": 2.59, "TEXAS_USA": -0.81, "STM_REF": 2.25, "LDO_REF": 3.31}
 
 # =========================================================================
-# SEZIONE 1: 📊 QUOTAZIONE IN TEMPO REALE (LINK INDIPENDENTI)
+# SEZIONE 1: 📊 QUOTAZIONE IN TEMPO REALE (LINK DIRETTI ISTITUZIONALI)
 # =========================================================================
-st.markdown("## 1. 📊 Quotazione Ufficiale in Tempo Reale")
-st.write("Seleziona il titolo per aprire la schermata isolata sul quotidiano o su Google Finance:")
+st.markdown("## 1. 📊 Quotazioni Ufficiali in Tempo Reale")
+st.write("Clicca sui pulsanti sottostanti per aprire i tabelloni telematici di riferimento in tempo reale su Borsa Italiana:")
 
 col_link_stm, col_link_ldo = st.columns(2)
 
 with col_link_stm:
-    st.markdown("### 🎯 STMicroelectronics (STM)")
-    # Collegamento Google Finance pulito senza codice lingua
+    # Pulsante per aprire la scheda di STMicroelectronics su Borsa Italiana
     st.link_button(
-        "📊 Apri STM su Google Finance", 
-        "https://google.com",
+        "📈 Apri la quotazione reale di STMicroelectronics (STM)", 
+        "https://borsaitaliana.it",
         use_container_width=True,
         type="primary"
-    )
-    # Collegamento alternativo pulito del Sole 24 Ore
-    st.link_button(
-        "📰 Canale Alternativo: Il Sole 24 Ore (STM)", 
-        "https://ilsole24ore.com",
-        use_container_width=True
     )
     
 with col_link_ldo:
-    st.markdown("### 🎯 Leonardo (LDO)")
-    # Collegamento Google Finance pulito senza codice lingua
+    # Pulsante per aprire la scheda di Leonardo su Borsa Italiana
     st.link_button(
-        "📊 Apri LEONARDO su Google Finance", 
-        "https://google.com",
+        "🛡️ Apri la quotazione reale di Leonardo (LDO)", 
+        "https://www.borsaitaliana.it/borsa/azioni/scheda/IT0003856405-MTAA.html?lang=it",
         use_container_width=True,
         type="primary"
-    )
-    # Collegamento alternativo pulito del Sole 24 Ore
-    st.link_button(
-        "📰 Canale Alternativo: Il Sole 24 Ore (LDO)", 
-        "https://ilsole24ore.com",
-        use_container_width=True
     )
 
 st.markdown("---")
