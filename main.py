@@ -1,134 +1,177 @@
-import streamlit as st
+import asyncio
+import threading
+from datetime import datetime
+from flask import Flask, render_template_string
 import yfinance as yf
-import pandas as pd
-import time
 
-# Configurazione della pagina Streamlit
-st.set_page_config(page_title="AI Quant Trader - Professional Feed", layout="wide")
+# --- CONFIGURAZIONE ---
+TICKERS_CHIPS = {"NVDA": "NVIDIA", "TSM": "TSMC", "ASML": "ASML"}
 
-# --- AUTO-REFRESH AUTOMATICO OGNI 30 SECONDI ---
-if "last_refresh" not in st.session_state:
-    st.session_state.last_refresh = time.time()
+# INDICI GEOPOLITICI (I nostri occhi sulle tensioni internazionali)
+TICKERS_GEOPOLITICA = {
+    "^VIX": "Indice Paura/Tensioni (VIX)",
+    "ITA": "Fondo Difesa e Aerospazio Globale (iShares)",
+}
 
-st.title("🤖 AI Quant Trader - Semiconduttori & Difesa")
-st.write("Plancia di comando predittiva. Monitoraggio dei flussi macroeconomici globali dei semiconduttori.")
-st.caption("🔄 Sincronizzazione automatica attiva (Aggiornamento flussi macro ogni 30 secondi).")
+TITOLI_MILANO = {"STM.MI": "STMicroelectronics", "LDO.MI": "Leonardo S.p.A."}
 
-# --- FUNZIONE DOWNLOAD PER IL SENTIMENT ---
-@st.cache_data(ttl=15)
-def scarica_sentiment_chip():
-    tickers = {
-        "NVIDIA_USA": "NVDA",
-        "TSMC_TAIWAN": "TSM",
-        "INFINEON_GER": "IFX.DE",
-        "TEXAS_USA": "TXN",
-        "STM_REF": "STM.MI",      
-        "LDO_REF": "LDO.MI"
-    }
-    prezzi, var_pct = {}, {}
-    for chiave, tkr in tickers.items():
+stato_mercato = {
+    "chip_leaders": {},
+    "geopolitica": {},
+    "milano": {},
+    "ultimo_aggiornamento": "Mai",
+}
+
+app = Flask(__name__)
+
+
+# --- LOGICA DI CALCOLO ASINCRONA ---
+async def monitoraggio_completo():
+    print("[Sistema] Connessione continua mercati e geopolitica attiva...")
+    while True:
         try:
-            # Metodo moderno e stabile per estrarre i dati dell'ultima sessione
-            ticker_obj = yf.Ticker(tkr)
-            istoria = ticker_obj.history(period="2d")
-            
-            if len(istoria) >= 2:
-                prezzo_attuale = float(istoria['Close'].iloc[-1])
-                chiusura_prec = float(istoria['Close'].iloc[-2])
-            else:
-                # Fallback se la borsa è chiusa o ha pochi dati storici immediati
-                prezzo_attuale = float(ticker_obj.basic_info['last_price'])
-                chiusura_prec = float(ticker_obj.basic_info['previous_close'])
-                
-            prezzi[chiave] = prezzo_attuale
-            var_pct[chiave] = ((prezzo_attuale - chiusura_prec) / chiusura_prec) * 100
-        except Exception:
-            prezzi[chiave], var_pct[chiave] = 0.0, 0.0
-            
-    return prezzi, var_pct
+            # 1. Analisi Semiconduttori (Come prima)
+            chips_var, c_count = 0, 0
+            for ticker in TICKERS_CHIPS.keys():
+                t = yf.Ticker(ticker)
+                df = t.history(period="1d", interval="1m")
+                if not df.empty:
+                    p_prec = t.info.get("previousClose", df["Close"].iloc[-1])
+                    var = ((df["Close"].iloc[-1] - p_prec) / p_prec) * 100
+                    chips_var += var
+                    c_count += 1
+            momentum_chips = chips_var / c_count if c_count > 0 else 0
 
-with st.spinner("Sincronizzazione canali integrati..."):
-    prezzi, var_pct = scarica_sentiment_chip()
+            # 2. Analisi Geopolitica
+            var_vix = 0.0  # Paura/Instabilità
+            var_difesa = 0.0  # Spesa Militare Mondiale
+            for ticker, nome in TICKERS_GEOPOLITICA.items():
+                t = yf.Ticker(ticker)
+                df = t.history(period="1d", interval="1m")
+                if not df.empty:
+                    p_prec = t.info.get("previousClose", df["Close"].iloc[-1])
+                    var = ((df["Close"].iloc[-1] - p_prec) / p_prec) * 100
+                    stato_mercato["geopolitica"][ticker] = {
+                        "nome": nome,
+                        "variazione": round(var, 2),
+                    }
+                    if ticker == "^VIX":
+                        var_vix = var
+                    elif ticker == "ITA":
+                        var_difesa = var
 
-# Fallback di sicurezza se Yahoo è momentaneamente offline o restituisce 0
-if prezzi.get("NVIDIA_USA", 0) == 0:
-    prezzi = {"NVIDIA_USA": 208.13, "TSMC_TAIWAN": 410.49, "INFINEON_GER": 63.70, "TEXAS_USA": 273.50, "STM_REF": 46.82, "LDO_REF": 56.74}
-    var_pct = {"NVIDIA_USA": 3.68, "TSMC_TAIWAN": 1.54, "INFINEON_GER": 2.59, "TEXAS_USA": -0.81, "STM_REF": 3.38, "LDO_REF": 3.71}
+            # 3. Calcolo Segnale per Milano con Matrice Geopolitica
+            for ticker, nome in TITOLI_MILANO.items():
+                t = yf.Ticker(ticker)
+                df = t.history(period="1d", interval="1m")
+                if not df.empty:
+                    prezzo_live = df["Close"].iloc[-1]
+                    # Chiediamo l'apertura per calcolare il trend giornaliero di Milano
+                    df_day = t.history(period="1d")
+                    var_milano = (
+                        ((prezzo_live - df_day["Open"].iloc[-1]) / df_day["Open"].iloc[-1])
+                        * 100
+                    )
 
-# =========================================================================
-# SEZIONE 1: 📊 QUOTAZIONE IN TEMPO REALE
-# =========================================================================
-st.markdown("## 1. 📊 Quotazioni Ufficiali in Tempo Reale")
-st.write("Clicca sui pulsanti sottostanti per aprire i tabelloni telematici di riferimento in tempo reale su Borsa Italiana:")
+                    if "STM" in ticker:
+                        # STM soffre se il VIX (paura/guerre commerciali) sale
+                        # Ma beneficia dei chip globali
+                        score = (
+                            (var_milano * 0.5)
+                            + (momentum_chips * 0.4)
+                            - (var_vix * 0.1)
+                        )
+                        soglia_buy, soglia_sell = 0.4, -0.4
+                    else:
+                        # Leonardo beneficia direttamente se la Difesa Globale (ITA) sale
+                        # E se il VIX (instabilità) aumenta l'allerta dei mercati
+                        score = (
+                            (var_milano * 0.5)
+                            + (var_difesa * 0.3)
+                            + (var_vix * 0.2)
+                        )
+                        soglia_buy, soglia_sell = 0.3, -0.3
 
-col_link_stm, col_link_ldo = st.columns(2)
+                    # Verdetto finale
+                    if score > soglia_buy:
+                        decisione = "🔴 COMPRARE (BUY)"
+                    elif score < soglia_sell:
+                        decisione = "🟢 VENDERE (SELL)"
+                    else:
+                        decisione = "🟡 TENERE (HOLD)"
 
-with col_link_stm:
-    st.link_button(
-        "📈 Apri la quotazione reale di STMicroelectronics (STM)", 
-        "https://borsaitaliana.it",
-        use_container_width=True,
-        type="primary"
-    )
+                    stato_mercato["milano"][ticker] = {
+                        "nome": nome,
+                        "prezzo": round(prezzo_live, 2),
+                        "variazione": round(var_milano, 2),
+                        "azione": decisione,
+                    }
+
+            stato_mercato["ultimo_aggiornamento"] = datetime.now().strftime(
+                "%H:%M:%S"
+            )
+        except Exception as e:
+            print(f"[Errore] Impossibile aggiornare: {e}")
+
+        await asyncio.sleep(60)  # Interroga i mercati ogni minuto senza blocchi
+
+
+def avvia_loop():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(monitoraggio_completo())
+
+
+# --- INTERFACCIA WEB ---
+HTML_DASHBOARD = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard Geopolitica e Chip</title>
+    <meta http-equiv="refresh" content="30">
+    <style>
+        body { font-family: Arial, sans-serif; background: #0f172a; color: white; padding: 20px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .card { background: #1e293b; padding: 20px; border-radius: 8px; border-left: 6px solid #64748b; }
+        .BUY { border-left-color: #ef4444; } .SELL { border-left-color: #22c55e; } .HOLD { border-left-color: #eab308; }
+        h1, h2 { color: #38bdf8; }
+        .badge { background: #334155; padding: 5px; border-radius: 4px; font-size: 0.9em; margin-right: 5px;}
+    </style>
+</head>
+<body>
+    <h1>Dashboard Decisionale Integrata (Geopolitica & Chip)</h1>
+    <p>Ultimo controllo: <b>{{ dati['ultimo_aggiornamento'] }}</b></p>
     
-with col_link_ldo:
-    st.link_button(
-        "🛡️ Apri la quotazione reale di Leonardo (LDO)", 
-        "https://borsaitaliana.it",
-        use_container_width=True,
-        type="primary"
-    )
+    <h2>I Tuoi Titoli a Milano (Euro)</h2>
+    <div class="grid">
+        {% for ticker, info in dati['milano'].items() %}
+            <div class="card {{ 'BUY' if 'COMPRARE' in info['azione'] else 'SELL' if 'VENDERE' in info['azione'] else 'HOLD' }}">
+                <h3>{{ info['nome'] }} ({{ ticker }})</h3>
+                <p>Prezzo Attuale: <b>{{ info['prezzo'] }} €</b> ({{ info['variazione'] }}%)</p>
+                <p><b>SEGNALE ALGORITMO: {{ info['azione'] }}</b></p>
+            </div>
+        {% endfor %}
+    </div>
 
-st.markdown("---")
+    <h2>Indicatori di Rischio Geopolitico Internazionale</h2>
+    <div class="grid">
+        {% for ticker, info in dati['geopolitica'].items() %}
+            <div class="card" style="border-left-color: #f43f5e;">
+                <h4>{{ info['nome'] }}</h4>
+                <p>Variazione Istantanea: <b>{{ info['variazione'] }}%</b></p>
+            </div>
+        {% endfor %}
+    </div>
+</body>
+</html>
+"""
 
-# =========================================================================
-# SEZIONE 2: 🌐 ANDAMENTO DEI GIGANTI DEI CHIP
-# =========================================================================
-st.markdown("## 2. 🌐 Andamento dei Giganti dei Chip")
-st.write("Variabili macroeconomiche globali utilizzate dal modello matematico per pesare il sentiment strutturale:")
 
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.metric(label="NVIDIA (NVDA)", value=f"{prezzi['NVIDIA_USA']:.2f} $", delta=f"{var_pct['NVIDIA_USA']:.2f}%")
-with col2:
-    st.metric(label="TSMC (TSM)", value=f"{prezzi['TSMC_TAIWAN']:.2f} $", delta=f"{var_pct['TSMC_TAIWAN']:.2f}%")
-with col3:
-    st.metric(label="INFINEON (IFX.DE)", value=f"{prezzi['INFINEON_GER']:.2f} €", delta=f"{var_pct['INFINEON_GER']:.2f}%")
-with col4:
-    st.metric(label="TEXAS INSTRUMENTS (TXN)", value=f"{prezzi['TEXAS_USA']:.2f} $", delta=f"{var_pct['TEXAS_USA']:.2f}%")
+@app.route("/")
+def index():
+    return render_template_string(HTML_DASHBOARD, dati=stato_mercato)
 
-st.markdown("---")
 
-# =========================================================================
-# SEZIONE 3: 🚀 PREVISIONI E SEGNALI OPERATIVI ELABORATI
-# =========================================================================
-st.markdown("## 3. 🚀 Previsioni e Segnali Operativi Elaborati dall'AI")
-
-spinta_macro_chip = (var_pct["INFINEON_GER"] + var_pct["NVIDIA_USA"] + var_pct["TSMC_TAIWAN"]) / 3
-
-col_stm, col_ldo = st.columns(2)
-
-with col_stm:
-    st.subheader("🎯 Target Asset: STMicroelectronics")
-    base_stm = prezzi["STM_REF"] if prezzi["STM_REF"] > 0 else 46.82
-    target_stimat_stm = base_stm * 1.15 if spinta_macro_chip > 0 else base_stm * 0.90
-    
-    st.success("### INDICAZIONE: COMPRARE (BUY)")
-    st.write("**Relazione con i Big dei Chip:** Correlazione diretta al *70%* con l'andamento combinato di Infineon e TSMC.")
-    st.write("*Forte inversione di tendenza confermata dai competitor diretti europei (Infineon). Il recupero del segmento automotive convalida i fondamentali industriali.*")
-    st.info(f"🔮 Target Price d'Inversione Medio (Analisti): **{target_stimat_stm:.2f} €** (Massimo stimato: **80.00 €**)")
-
-with col_ldo:
-    st.subheader("🎯 Target Asset: Leonardo")
-    base_ldo = prezzi["LDO_REF"] if prezzi["LDO_REF"] > 0 else 56.74
-    target_stimat_ldo = base_ldo * 1.05 if var_pct["LDO_REF"] > 2.5 else base_ldo * 0.98
-    
-    st.warning("### INDICAZIONE: TENERE (HOLD)")
-    st.write("**Relazione con i Big dei Chip:** Correlazione indiretta al *15%* (mitigazione del rischio colli di bottiglia e approvvigionamento materiali nelle fonderie).")
-    st.write("*Il titolo si muove in un binario rialzista autonomo grazie al boom di ordini nel settore difesa (+40%). Avendo già effettuato un forte rally intraday, si consiglia di mantenere senza esporsi sui massimi di giornata.*")
-    st.info(f"🔮 Target Price di Consolidamento Medio (Analisti): **{target_stimat_ldo:.2f} €** (Massimo stimato: **60.00 €**)")
-
-st.caption("I dati storici ed i segnali algoritmici simulati sono elaborati a scopo puramente didattico e non costituiscono sollecitazione al pubblico risparmio.")
-
-# Sistema nativo e leggero per gestire l'auto-refresh continuo ogni 30 secondi
-st.fragment(run_every=30)(lambda: None)()
+if __name__ == "__main__":
+    threading.Thread(target=avvia_loop, daemon=True).start()
+    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
