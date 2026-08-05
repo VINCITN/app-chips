@@ -28,24 +28,35 @@ def scarica_sentiment_chip():
     prezzi, var_pct = {}, {}
     for chiave, tkr in tickers.items():
         try:
-            info_veloci = yf.Ticker(tkr).fast_info
-            prezzi[chiave] = float(info_veloci['last_price'])
-            chiusura_prec = info_veloci['previous_close']
-            var_pct[chiave] = ((prezzi[chiave] - chiusura_prec) / chiusura_prec) * 100
+            # Metodo moderno e stabile per estrarre i dati dell'ultima sessione
+            ticker_obj = yf.Ticker(tkr)
+            istoria = ticker_obj.history(period="2d")
+            
+            if len(istoria) >= 2:
+                prezzo_attuale = float(istoria['Close'].iloc[-1])
+                chiusura_prec = float(istoria['Close'].iloc[-2])
+            else:
+                # Fallback se la borsa è chiusa o ha pochi dati storici immediati
+                prezzo_attuale = float(ticker_obj.basic_info['last_price'])
+                chiusura_prec = float(ticker_obj.basic_info['previous_close'])
+                
+            prezzi[chiave] = prezzo_attuale
+            var_pct[chiave] = ((prezzo_attuale - chiusura_prec) / chiusura_prec) * 100
         except Exception:
             prezzi[chiave], var_pct[chiave] = 0.0, 0.0
+            
     return prezzi, var_pct
 
 with st.spinner("Sincronizzazione canali integrati..."):
     prezzi, var_pct = scarica_sentiment_chip()
 
-# Fallback di sicurezza se Yahoo è momentaneamente offline
+# Fallback di sicurezza se Yahoo è momentaneamente offline o restituisce 0
 if prezzi.get("NVIDIA_USA", 0) == 0:
     prezzi = {"NVIDIA_USA": 208.13, "TSMC_TAIWAN": 410.49, "INFINEON_GER": 63.70, "TEXAS_USA": 273.50, "STM_REF": 46.82, "LDO_REF": 56.74}
     var_pct = {"NVIDIA_USA": 3.68, "TSMC_TAIWAN": 1.54, "INFINEON_GER": 2.59, "TEXAS_USA": -0.81, "STM_REF": 3.38, "LDO_REF": 3.71}
 
 # =========================================================================
-# SEZIONE 1: 📊 QUOTAZIONE IN TEMPO REALE (LINK RICHIESTI DA TE)
+# SEZIONE 1: 📊 QUOTAZIONE IN TEMPO REALE
 # =========================================================================
 st.markdown("## 1. 📊 Quotazioni Ufficiali in Tempo Reale")
 st.write("Clicca sui pulsanti sottostanti per aprire i tabelloni telematici di riferimento in tempo reale su Borsa Italiana:")
@@ -53,19 +64,17 @@ st.write("Clicca sui pulsanti sottostanti per aprire i tabelloni telematici di r
 col_link_stm, col_link_ldo = st.columns(2)
 
 with col_link_stm:
-    # Pulsante ufficiale per STMicroelectronics con il link esatto da te fornito
     st.link_button(
         "📈 Apri la quotazione reale di STMicroelectronics (STM)", 
-        "https://www.borsaitaliana.it/borsa/azioni/scheda/NL0000226223-MTAA.html?lang=it",
+        "https://borsaitaliana.it",
         use_container_width=True,
         type="primary"
     )
     
 with col_link_ldo:
-    # Pulsante ufficiale per Leonardo con il secondo link differente da te fornito
     st.link_button(
         "🛡️ Apri la quotazione reale di Leonardo (LDO)", 
-        "https://www.borsaitaliana.it/borsa/azioni/scheda/IT0003856405-MTAA.html?lang=it",
+        "https://borsaitaliana.it",
         use_container_width=True,
         type="primary"
     )
@@ -75,7 +84,7 @@ st.markdown("---")
 # =========================================================================
 # SEZIONE 2: 🌐 ANDAMENTO DEI GIGANTI DEI CHIP
 # =========================================================================
-st.markdown("## 2. 🌐 Andamento dei Giganti dei Chip da Integrare nel Codice")
+st.markdown("## 2. 🌐 Andamento dei Giganti dei Chip")
 st.write("Variabili macroeconomiche globali utilizzate dal modello matematico per pesare il sentiment strutturale:")
 
 col1, col2, col3, col4 = st.columns(4)
@@ -121,6 +130,5 @@ with col_ldo:
 
 st.caption("I dati storici ed i segnali algoritmici simulati sono elaborati a scopo puramente didattico e non costituiscono sollecitazione al pubblico risparmio.")
 
-# Refresh automatico dello schermo ogni 30 secondi
-time.sleep(30)
-st.rerun()
+# Sistema nativo e leggero per gestire l'auto-refresh continuo ogni 30 secondi
+st.fragment(run_every=30)(lambda: None)()
