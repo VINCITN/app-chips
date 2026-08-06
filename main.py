@@ -1,7 +1,9 @@
+import requests_cache
+# Mantiene i dati in memoria per 2 minuti (120 secondi)
+yf.set_proxy_session(requests_cache.CachedSession('yfinance.cache', expire_after=120))
 from datetime import datetime
 import streamlit as st
 import yfinance as yf
-
 st.set_page_config(page_title="Crypto & Chip Dashboard", layout="wide")
 st.title("📊 Dashboard Algoritmica Semiconduttori & Geopolitica")
 st.write("L'applicazione incrocia i dati di mercato con i produttori mondiali di chip e gli indici geopolitici.")
