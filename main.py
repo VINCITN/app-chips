@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 import streamlit as st
+import requests
 
 st.set_page_config(page_title="Crypto & Chip Dashboard", layout="wide")
 
@@ -31,7 +32,7 @@ with st.sidebar:
 
     st.markdown("---")
     if st.button("⚡ BYPASS CACHE: Tempo Reale Ora"):
-        st.toast("Richiesta immediata dati freschi tramite tunnel CSV.")
+        st.toast("Richiesta immediata dati freschi tramite tunnel protetto.")
         st.cache_data.clear() 
         st.session_state.ultimo_aggiornamento_reale = datetime.now()
         st.rerun()
@@ -64,31 +65,40 @@ TICKERS = {
     "BTC-USD": "Bitcoin",
 }
 
-# --- DOWNLOAD DATI IN CSV SENZA BLOCCO CLOUD ---
+# --- TUNNEL IN JSON CON USER-AGENT ---
 @st.cache_data(ttl=120)
 def scarica_dati(tickers_dict):
     dati_finali = {}
     
-    # Calcolo timestamp Unix per la richiesta CSV
-    fine_ts = int(time.time())
-    inizio_ts = int(fine_ts - (180 * 24 * 60 * 60)) # 6 mesi fa
+    # Intestazioni di sicurezza (Fingiamo di essere un browser reale per superare i blocchi cloud)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+    }
     
     for ticker in tickers_dict.keys():
         try:
-            # Generazione dell'URL di download diretto del file CSV di Yahoo Finance (Infallibile su Cloud)
-            url = f"https://yahoo.com{ticker}?period1={inizio_ts}&period2={fine_ts}&interval=1d&events=history&includeAdjustedClose=true"
+            # Endpoint ufficiale per i grafici JSON (Molto più stabile dei file CSV)
+            url = f"https://yahoo.com{ticker}?range=6mo&interval=1d"
             
-            # Lettura del file CSV direttamente in un DataFrame Pandas
-            df = pd.read_csv(url)
+            risposta = requests.get(url, headers=headers, timeout=10)
             
-            if df is not None and not df.empty:
-                # Imposta la data come indice
-                df['Date'] = pd.to_datetime(df['Date'])
-                df.set_index('Date', inplace=True)
+            if risposta.status_code == 200:
+                json_data = risposta.json()
+                result = json_data["chart"]["result"][0]
                 
-                # Creazione dataframe pulito per i grafici
-                df_pulito = pd.DataFrame(index=df.index)
-                df_pulito["Close"] = df["Close"].astype(float)
+                # Estrazione timestamp e prezzi di chiusura
+                timestamps = result["timestamp"]
+                quotes = result["indicators"]["quote"][0]
+                close_prices = quotes["close"]
+                
+                # Conversione in DataFrame Pandas
+                dates = [datetime.fromtimestamp(ts).date() for ts in timestamps]
+                df_pulito = pd.DataFrame(index=dates)
+                df_pulito["Close"] = pd.Series(close_prices, index=dates).astype(float)
+                
+                # Rimozione di eventuali righe vuote nei giorni festivi
+                df_pulito.dropna(subset=["Close"], inplace=True)
                 
                 # Calcolo degli indicatori tecnici richiesti
                 df_pulito["SMA_20"] = calcola_sma(df_pulito["Close"], 20)
@@ -97,7 +107,6 @@ def scarica_dati(tickers_dict):
                 
                 dati_finali[ticker] = df_pulito
         except Exception:
-            # Fallback di emergenza nel caso in cui un ticker specifico sia momentaneamente offline
             pass
             
     return dati_finali
@@ -141,4 +150,4 @@ if dati:
     with st.expander("📄 Visualizza ultimi dati storici"):
         st.dataframe(df_asset[["Close", "SMA_20", "SMA_50", "RSI_14"]].tail(10))
 else:
-    st.warning("I server di Yahoo Finance stanno rifiutando la connessione simultanea. Prova a cliccare su BYPASS CACHE nella barra laterale tra pochi secondi.")
+    st.error("I server Cloud sono momentaneamente limitati da Yahoo. Attendi 10 secondi e clicca su BYPASS CACHE nella barra laterale.")
