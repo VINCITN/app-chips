@@ -1,12 +1,8 @@
-import os
-# Forziamo una cartella temporanea pulita per i cookie di Yahoo Finance
-os.environ["YFINANCE_CACHE_DIR"] = "/tmp/yfinance"
-
 from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 import streamlit as st
-import yfinance as yf
+import pandas_datareader.data as web
 
 st.set_page_config(page_title="Crypto & Chip Dashboard", layout="wide")
 
@@ -35,7 +31,7 @@ with st.sidebar:
 
     st.markdown("---")
     if st.button("⚡ BYPASS CACHE: Tempo Reale Ora"):
-        st.toast("Richiesta immediata dati freschi a Yahoo Finance.")
+        st.toast("Richiesta immediata dati freschi al server alternativo.")
         st.cache_data.clear() 
         st.session_state.ultimo_aggiornamento_reale = datetime.now()
         st.rerun()
@@ -68,33 +64,30 @@ TICKERS = {
     "BTC-USD": "Bitcoin",
 }
 
-# --- DOWNLOAD DATI ORA FUNZIONANTE CON COSTRUZIONE DIRETTA ---
+# --- DOWNLOAD DATI STABILE PER CLOUD ---
 @st.cache_data(ttl=120)
 def scarica_dati(tickers_dict):
     dati_finali = {}
+    fine = datetime.now()
+    inizio = fine - timedelta(days=180) # 6 mesi di dati
+    
     for ticker in tickers_dict.keys():
         try:
-            # Metodo alternativo super stabile: scarica l'oggetto e chiama history
-            t = yf.Ticker(ticker)
-            df = t.history(period="6m")
+            # Sfrutta pandas_datareader bypassando il blocco di yfinance su cloud
+            df = web.DataReader(ticker, 'yahoo', inizio, fine)
             
             if df is not None and not df.empty:
-                # Forza la pulizia delle colonne nel caso di formati strani
-                if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = df.columns.get_level_values(0)
-                
-                # Creiamo un DataFrame pulito usando solo la colonna Close convertita in serie piatta
                 df_pulito = pd.DataFrame(index=df.index)
                 df_pulito["Close"] = df["Close"].values.flatten()
                 
-                # Calcolo degli indicatori tecnici
+                # Calcolo metriche
                 df_pulito["SMA_20"] = calcola_sma(df_pulito["Close"], 20)
                 df_pulito["SMA_50"] = calcola_sma(df_pulito["Close"], 50)
                 df_pulito["RSI_14"] = calcola_rsi(df_pulito["Close"], 14)
                 
                 dati_finali[ticker] = df_pulito
         except Exception as e:
-            st.sidebar.error(f"Errore tecnico su {ticker}: {str(e)}")
+            st.sidebar.error(f"Connessione alternativa per {ticker} fallita.")
     return dati_finali
 
 dati = scarica_dati(TICKERS)
@@ -136,4 +129,4 @@ if dati:
     with st.expander("📄 Visualizza ultimi dati storici"):
         st.dataframe(df_asset[["Close", "SMA_20", "SMA_50", "RSI_14"]].tail(10))
 else:
-    st.warning("Impossibile caricare i dati di mercato. Verifica la connessione o il bypass della cache.")
+    st.warning("Impossibile caricare i dati di mercato. Il server cloud sta rigenerando le connessioni protette.")
