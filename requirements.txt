@@ -1,4 +1,4 @@
 streamlit
-yfinance
+yfinance[nativetls]
 pandas
 numpy
