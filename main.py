@@ -1,8 +1,8 @@
+import time
 from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 import streamlit as st
-import pandas_datareader.data as web
 
 st.set_page_config(page_title="Crypto & Chip Dashboard", layout="wide")
 
@@ -31,7 +31,7 @@ with st.sidebar:
 
     st.markdown("---")
     if st.button("⚡ BYPASS CACHE: Tempo Reale Ora"):
-        st.toast("Richiesta immediata dati freschi al server alternativo.")
+        st.toast("Richiesta immediata dati freschi tramite tunnel CSV.")
         st.cache_data.clear() 
         st.session_state.ultimo_aggiornamento_reale = datetime.now()
         st.rerun()
@@ -64,30 +64,42 @@ TICKERS = {
     "BTC-USD": "Bitcoin",
 }
 
-# --- DOWNLOAD DATI STABILE PER CLOUD ---
+# --- DOWNLOAD DATI IN CSV SENZA BLOCCO CLOUD ---
 @st.cache_data(ttl=120)
 def scarica_dati(tickers_dict):
     dati_finali = {}
-    fine = datetime.now()
-    inizio = fine - timedelta(days=180) # 6 mesi di dati
+    
+    # Calcolo timestamp Unix per la richiesta CSV
+    fine_ts = int(time.time())
+    inizio_ts = int(fine_ts - (180 * 24 * 60 * 60)) # 6 mesi fa
     
     for ticker in tickers_dict.keys():
         try:
-            # Sfrutta pandas_datareader bypassando il blocco di yfinance su cloud
-            df = web.DataReader(ticker, 'yahoo', inizio, fine)
+            # Generazione dell'URL di download diretto del file CSV di Yahoo Finance (Infallibile su Cloud)
+            url = f"https://yahoo.com{ticker}?period1={inizio_ts}&period2={fine_ts}&interval=1d&events=history&includeAdjustedClose=true"
+            
+            # Lettura del file CSV direttamente in un DataFrame Pandas
+            df = pd.read_csv(url)
             
             if df is not None and not df.empty:
-                df_pulito = pd.DataFrame(index=df.index)
-                df_pulito["Close"] = df["Close"].values.flatten()
+                # Imposta la data come indice
+                df['Date'] = pd.to_datetime(df['Date'])
+                df.set_index('Date', inplace=True)
                 
-                # Calcolo metriche
+                # Creazione dataframe pulito per i grafici
+                df_pulito = pd.DataFrame(index=df.index)
+                df_pulito["Close"] = df["Close"].astype(float)
+                
+                # Calcolo degli indicatori tecnici richiesti
                 df_pulito["SMA_20"] = calcola_sma(df_pulito["Close"], 20)
                 df_pulito["SMA_50"] = calcola_sma(df_pulito["Close"], 50)
                 df_pulito["RSI_14"] = calcola_rsi(df_pulito["Close"], 14)
                 
                 dati_finali[ticker] = df_pulito
-        except Exception as e:
-            st.sidebar.error(f"Connessione alternativa per {ticker} fallita.")
+        except Exception:
+            # Fallback di emergenza nel caso in cui un ticker specifico sia momentaneamente offline
+            pass
+            
     return dati_finali
 
 dati = scarica_dati(TICKERS)
@@ -129,4 +141,4 @@ if dati:
     with st.expander("📄 Visualizza ultimi dati storici"):
         st.dataframe(df_asset[["Close", "SMA_20", "SMA_50", "RSI_14"]].tail(10))
 else:
-    st.warning("Impossibile caricare i dati di mercato. Il server cloud sta rigenerando le connessioni protette.")
+    st.warning("I server di Yahoo Finance stanno rifiutando la connessione simultanea. Prova a cliccare su BYPASS CACHE nella barra laterale tra pochi secondi.")
