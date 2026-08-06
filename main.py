@@ -2,16 +2,10 @@ from datetime import datetime, timedelta
 import time
 import numpy as np
 import pandas as pd
-import requests_cache
 import streamlit as st
 import yfinance as yf
 
 # --- CONFIGURAZIONE CACHE E SICUREZZA ---
-if "session" not in st.session_state:
-    st.session_state.session = requests_cache.CachedSession(
-        "yf_security_lock.cache", expire_after=120
-    )
-
 if "ultimo_aggiornamento_reale" not in st.session_state:
     st.session_state.ultimo_aggiornamento_reale = (
         datetime.now() - timedelta(minutes=5)
@@ -33,14 +27,14 @@ with st.sidebar:
             label="Prossimo aggiornamento sicuro tra:",
             value=f"{secondi_mancanti} secondi",
         )
-        st.info("🔄 Lettura automatica da memoria cache locale.")
+        st.info("🔄 Lettura automatica da memoria cache di Streamlit.")
     else:
         st.success("🟢 Server pronti per una richiesta diretta!")
 
     st.markdown("---")
     if st.button("⚡ BYPASS CACHE: Tempo Reale Ora"):
         st.toast("Richiesta immediata dati freschi a Yahoo Finance.")
-        st.session_state.session.cache.clear()
+        st.cache_data.clear() # Svuota la cache nativa di Streamlit
         st.session_state.ultimo_aggiornamento_reale = datetime.now()
         st.rerun()
 
@@ -73,12 +67,13 @@ TICKERS = {
 }
 
 # --- DOWNLOAD DATI ---
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=120) # Gestisce la cache in modo nativo e sicuro
 def scarica_dati(tickers_dict):
     dati_finali = {}
     for ticker, nome in tickers_dict.items():
         try:
-            ticker_obj = yf.Ticker(ticker, session=st.session_state.session)
+            # Rimosso il parametro session= obsoleto
+            ticker_obj = yf.Ticker(ticker)
             df = ticker_obj.history(period="6m")
             if not df.empty:
                 df["SMA_20"] = calcola_sma(df["Close"], 20)
