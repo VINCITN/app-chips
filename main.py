@@ -1,22 +1,13 @@
 import os
-# --- RISOLUZIONE CACHE LINUX PER STREAMLIT CLOUD ---
-# Configura una cartella scrivibile prima di importare yfinance
+# Forziamo una cartella temporanea pulita per i cookie di Yahoo Finance
 os.environ["YFINANCE_CACHE_DIR"] = "/tmp/yfinance"
 
 from datetime import datetime, timedelta
-import time
 import numpy as np
 import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-# Re-indirizzamento di sicurezza della cache interna di yfinance
-try:
-    yf.set_tz_cache_location("/tmp/yfinance")
-except Exception:
-    pass
-
-# --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Crypto & Chip Dashboard", layout="wide")
 
 if "ultimo_aggiornamento_reale" not in st.session_state:
@@ -45,7 +36,7 @@ with st.sidebar:
     st.markdown("---")
     if st.button("⚡ BYPASS CACHE: Tempo Reale Ora"):
         st.toast("Richiesta immediata dati freschi a Yahoo Finance.")
-        st.cache_data.clear() # Svuota la cache nativa di Streamlit
+        st.cache_data.clear() 
         st.session_state.ultimo_aggiornamento_reale = datetime.now()
         st.rerun()
 
@@ -77,25 +68,33 @@ TICKERS = {
     "BTC-USD": "Bitcoin",
 }
 
-# --- DOWNLOAD DATI ---
+# --- DOWNLOAD DATI ORA FUNZIONANTE CON COSTRUZIONE DIRETTA ---
 @st.cache_data(ttl=120)
 def scarica_dati(tickers_dict):
     dati_finali = {}
-    for ticker, nome in tickers_dict.items():
+    for ticker in tickers_dict.keys():
         try:
-            # Scarica i dati direttamente sfruttando la nuova gestione interna di yfinance
-            df = yf.download(ticker, period="6m", progress=False)
-            if not df.empty:
-                # Appiattisce le colonne se yfinance restituisce un MultiIndex
+            # Metodo alternativo super stabile: scarica l'oggetto e chiama history
+            t = yf.Ticker(ticker)
+            df = t.history(period="6m")
+            
+            if df is not None and not df.empty:
+                # Forza la pulizia delle colonne nel caso di formati strani
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = df.columns.get_level_values(0)
                 
-                df["SMA_20"] = calcola_sma(df["Close"], 20)
-                df["SMA_50"] = calcola_sma(df["Close"], 50)
-                df["RSI_14"] = calcola_rsi(df["Close"], 14)
-                dati_finali[ticker] = df
+                # Creiamo un DataFrame pulito usando solo la colonna Close convertita in serie piatta
+                df_pulito = pd.DataFrame(index=df.index)
+                df_pulito["Close"] = df["Close"].values.flatten()
+                
+                # Calcolo degli indicatori tecnici
+                df_pulito["SMA_20"] = calcola_sma(df_pulito["Close"], 20)
+                df_pulito["SMA_50"] = calcola_sma(df_pulito["Close"], 50)
+                df_pulito["RSI_14"] = calcola_rsi(df_pulito["Close"], 14)
+                
+                dati_finali[ticker] = df_pulito
         except Exception as e:
-            st.sidebar.error(f"Errore {ticker}: {e}")
+            st.sidebar.error(f"Errore tecnico su {ticker}: {str(e)}")
     return dati_finali
 
 dati = scarica_dati(TICKERS)
@@ -132,8 +131,7 @@ if dati:
     st.markdown("---")
     
     st.subheader(f"📈 Andamento Prezzi e Medie Mobili per {TICKERS[asset_scelto]}")
-    grafico_df = df_asset[["Close", "SMA_20", "SMA_50"]]
-    st.line_chart(grafico_df)
+    st.line_chart(df_asset[["Close", "SMA_20", "SMA_50"]])
     
     with st.expander("📄 Visualizza ultimi dati storici"):
         st.dataframe(df_asset[["Close", "SMA_20", "SMA_50", "RSI_14"]].tail(10))
