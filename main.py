@@ -1,3 +1,8 @@
+import os
+# --- RISOLUZIONE CACHE LINUX PER STREAMLIT CLOUD ---
+# Configura una cartella scrivibile prima di importare yfinance
+os.environ["YFINANCE_CACHE_DIR"] = "/tmp/yfinance"
+
 from datetime import datetime, timedelta
 import time
 import numpy as np
@@ -5,13 +10,19 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-# --- CONFIGURAZIONE CACHE E SICUREZZA ---
+# Re-indirizzamento di sicurezza della cache interna di yfinance
+try:
+    yf.set_tz_cache_location("/tmp/yfinance")
+except Exception:
+    pass
+
+# --- CONFIGURAZIONE PAGINA ---
+st.set_page_config(page_title="Crypto & Chip Dashboard", layout="wide")
+
 if "ultimo_aggiornamento_reale" not in st.session_state:
     st.session_state.ultimo_aggiornamento_reale = (
         datetime.now() - timedelta(minutes=5)
     )
-
-st.set_page_config(page_title="Crypto & Chip Dashboard", layout="wide")
 
 # --- BARRA LATERALE CON TIMER E CONTROLLO ---
 with st.sidebar:
@@ -67,21 +78,24 @@ TICKERS = {
 }
 
 # --- DOWNLOAD DATI ---
-@st.cache_data(ttl=120) # Gestisce la cache in modo nativo e sicuro
+@st.cache_data(ttl=120)
 def scarica_dati(tickers_dict):
     dati_finali = {}
     for ticker, nome in tickers_dict.items():
         try:
-            # Rimosso il parametro session= obsoleto
-            ticker_obj = yf.Ticker(ticker)
-            df = ticker_obj.history(period="6m")
+            # Scarica i dati direttamente sfruttando la nuova gestione interna di yfinance
+            df = yf.download(ticker, period="6m", progress=False)
             if not df.empty:
+                # Appiattisce le colonne se yfinance restituisce un MultiIndex
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
+                
                 df["SMA_20"] = calcola_sma(df["Close"], 20)
                 df["SMA_50"] = calcola_sma(df["Close"], 50)
                 df["RSI_14"] = calcola_rsi(df["Close"], 14)
                 dati_finali[ticker] = df
         except Exception as e:
-            st.error(f"Errore nello scaricamento di {ticker}: {e}")
+            st.sidebar.error(f"Errore {ticker}: {e}")
     return dati_finali
 
 dati = scarica_dati(TICKERS)
@@ -97,9 +111,9 @@ if dati:
     )
     
     df_asset = dati[asset_scelto]
-    ultimo_prezzo = df_asset["Close"].iloc[-1]
-    variazione = df_asset["Close"].pct_change().iloc[-1] * 100
-    ultimo_rsi = df_asset["RSI_14"].iloc[-1]
+    ultimo_prezzo = float(df_asset["Close"].iloc[-1])
+    variazione = float(df_asset["Close"].pct_change().iloc[-1] * 100)
+    ultimo_rsi = float(df_asset["RSI_14"].iloc[-1])
     
     col1, col2, col3 = st.columns(3)
     with col1:
