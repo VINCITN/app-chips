@@ -1,3 +1,5 @@
-flask
+streamlit
 yfinance
-websockets
+requests-cache
+pandas
+numpy
