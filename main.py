@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 import streamlit as st
-import requests
+import yfinance as yf
 
 st.set_page_config(page_title="Crypto & Chip Dashboard", layout="wide")
 
@@ -38,7 +38,6 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # --- NUOVO CONTROLLO: SELETTORE SCALA TEMPORALE ---
     st.header("📅 Orizzonte Temporale")
     periodo_scelto = st.selectbox(
         "Seleziona il periodo di analisi:",
@@ -102,30 +101,21 @@ TICKERS = {
     "BTC-USD": "Bitcoin",
 }
 
-# La cache ora memorizza i dati anche in base alla stringa del periodo (range) per evitare conflitti
+# --- NUOVA FUNZIONE SICURA TRAMITE YFINANCE ---
 @st.cache_data(ttl=120)
 def scarica_dati(tickers_dict, range_periodo):
     dati_finali = {}
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
     for ticker in tickers_dict.keys():
         try:
-            # RANGE DINAMICO inserito nell'URL di richiesta a Yahoo API
-            url = f"https://yahoo.com{ticker}?range={range_periodo}&interval=1d"
-            risposta = requests.get(url, headers=headers, timeout=10)
-            if risposta.status_code == 200:
-                json_data = risposta.json()
-                result = json_data["chart"]["result"]
-                timestamps = result["timestamp"]
-                quotes = result["indicators"]["quote"]
-                close_prices = quotes["close"]
+            # yfinance effettua il download aggirando i blocchi IP standard delle macchine cloud
+            ticker_data = yf.Ticker(ticker)
+            df = ticker_data.history(period=range_periodo, interval="1d")
+            
+            if not df.empty:
+                df_pulito = pd.DataFrame(index=df.index.date)
+                df_pulito["Close"] = df["Close"].values.astype(float)
                 
-                dates = [datetime.fromtimestamp(ts).date() for ts in timestamps]
-                df_pulito = pd.DataFrame(index=dates)
-                df_pulito["Close"] = pd.Series(close_prices, index=dates).astype(float)
-                df_pulito.dropna(subset=["Close"], inplace=True)
-                
+                # Calcoli algoritmici interni
                 df_pulito["SMA_20"] = calcola_sma(df_pulito["Close"], 20)
                 df_pulito["SMA_50"] = calcola_sma(df_pulito["Close"], 50)
                 df_pulito["RSI_14"] = calcola_rsi(df_pulito["Close"], 14)
@@ -135,7 +125,6 @@ def scarica_dati(tickers_dict, range_periodo):
             pass
     return dati_finali
 
-# Scarichiamo i dati passando l'intervallo scelto dall'utente
 dati = scarica_dati(TICKERS, periodo_scelto)
 
 # --- INTERFACCIA PRINCIPALE ---
@@ -190,11 +179,14 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
             prezzo_iniziale = dati[t_key]["Close"].iloc[0]
             df_confronto[TICKERS[t_key]] = ((dati[t_key]["Close"] - prezzo_iniziale) / prezzo_iniziale) * 100
             
-    st.line_chart(df_confronto)
+    if not df_confronto.empty:
+        st.line_chart(df_confronto)
+    else:
+        st.warning("Dati insufficienti per generare il grafico di confronto.")
 
     st.markdown("---")
     
-       # --- SELEZIONE PER IL GRAFICO SOTTOSTANTE ---
+    # --- SELEZIONE PER IL GRAFICO SOTTOSTANTE ---
     st.subheader("📈 Analisi Tecnica Dettagliata (Titolo Singolo)")
     asset_scelto = st.selectbox(
         "Scegli quale asset visualizzare sul grafico con Medie Mobili:", 
@@ -219,4 +211,4 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
     with st.expander("📄 Registro Storico Dati (Ultimi 10 giorni)"):
         st.dataframe(df_asset[["Close", "SMA_20", "SMA_50", "RSI_14"]].tail(10))
 else:
-    st.error("Servizi temporaneamente lenti nel recupero dati. Modifica il periodo o forza l'aggiornamento dalla barra laterale.")
+    st.error("Nessun dato caricato. Attendi 10 secondi e premi su 'BYPASS CACHE' nella barra laterale per ristabilire la connessione con Yahoo Finance.")
