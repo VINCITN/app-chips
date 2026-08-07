@@ -194,7 +194,7 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
 
     st.markdown("---")
     
-    # --- SELEZIONE PER IL GRAFICO SOTTOSTANTE ---
+       # --- SELEZIONE PER IL GRAFICO SOTTOSTANTE ---
     st.subheader("📈 Analisi Tecnica Dettagliata (Titolo Singolo)")
     asset_scelto = st.selectbox(
         "Scegli quale asset visualizzare sul grafico con Medie Mobili:", 
@@ -217,3 +217,6 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
     st.line_chart(df_asset[["Close", "SMA_20", "SMA_50"]])
     
     with st.expander("📄 Registro Storico Dati (Ultimi 10 giorni)"):
+        st.dataframe(df_asset[["Close", "SMA_20", "SMA_50", "RSI_14"]].tail(10))
+else:
+    st.error("Servizi temporaneamente lenti nel recupero dati. Modifica il periodo o forza l'aggiornamento dalla barra laterale.")
