@@ -102,12 +102,11 @@ TICKERS = {
     "BTC-USD": "Bitcoin",
 }
 
-# --- FUNZIONE DI SCARICAMENTO DATI CORRETTA ---
+# --- FUNZIONE DI SCARICAMENTO DATI ULTRA-STABILE ---
 @st.cache_data(ttl=120)
 def scarica_dati(tickers_dict, range_periodo):
     dati_finali = {}
     
-    # Creiamo una sessione standard pulita e compatibile
     sessione = requests.Session()
     sessione.headers.update({
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -115,14 +114,15 @@ def scarica_dati(tickers_dict, range_periodo):
     
     for ticker in tickers_dict.keys():
         try:
-            # Passiamo la sessione di richiesta corretta direttamente dentro yfinance
+            # ANTIBLOCCO: ritardo controllato per non sovraccaricare Yahoo
+            time.sleep(0.5)
+            
             df = yf.download(ticker, period=range_periodo, interval="1d", session=sessione, progress=False)
             
             if not df.empty:
                 df.index = df.index.tz_localize(None)
                 df_pulito = pd.DataFrame(index=df.index)
                 
-                # Appiattiamo le colonne se yfinance restituisce un MultiIndex
                 if isinstance(df.columns, pd.MultiIndex):
                     prezzi_chiusura = df["Close"][ticker].values
                 else:
@@ -170,7 +170,7 @@ if dati and ("STM.MI" in dati or "LDO.MI" in dati):
             st.markdown(f"**Segnale Algoritmico:** `{stm_rec}`")
             st.caption(f"ℹ️ {stm_mot}")
         else:
-            st.warning("Dati STM temporaneamente non disponibili.")
+            st.warning("Dati STM temporaneamente in coda. Premi 'BYPASS CACHE' tra 5 secondi.")
         
     with row_col2:
         if "LDO.MI" in dati:
@@ -197,7 +197,7 @@ if dati and ("STM.MI" in dati or "LDO.MI" in dati):
         if t_key in dati and not dati[t_key].empty:
             serie_valida = dati[t_key]["Close"].dropna()
             if not serie_valida.empty:
-                prezzo_iniziale = float(serie_valida.iloc[0])
+                prezzo_iniziale = float(serie_valida.iloc)
                 if prezzo_iniziale > 0:
                     df_confronto[TICKERS[t_key]] = ((dati[t_key]["Close"] - prezzo_iniziale) / prezzo_iniziale) * 100
             
@@ -207,7 +207,8 @@ if dati and ("STM.MI" in dati or "LDO.MI" in dati):
         st.warning("Dati storici insufficienti per generare il grafico comparativo.")
 
     st.markdown("---")
-        # --- SELEZIONE PER IL GRAFICO SOTTOSTANTE ---
+    
+    # --- SELEZIONE PER IL GRAFICO SOTTOSTANTE ---
     st.subheader("📈 Analisi Tecnica Dettagliata (Titolo Singolo)")
     asset_scelto = st.selectbox(
         "Scegli quale asset visualizzare sul grafico con Medie Mobili:", 
@@ -220,19 +221,3 @@ if dati and ("STM.MI" in dati or "LDO.MI" in dati):
         
         m1, m2, m3 = st.columns(3)
         with m1:
-            st.metric(label="Prezzo Attuale", value=f"{float(df_asset['Close'].iloc[-1]):.2f}", delta=f"{float(df_asset['Close'].pct_change().fillna(0).iloc[-1]*100):.2f}%")
-        with m2:
-            st.metric(label="RSI (14d)", value=f"{float(df_asset['RSI_14'].fillna(50).iloc[-1]):.2f}")
-        with m3:
-            current_rsi = float(df_asset['RSI_14'].fillna(50).iloc[-1])
-            condizione = "🚨 Ipercomprato" if current_rsi > 70 else "🛒 Ipervenduto" if current_rsi < 30 else "⚖️ Neutrale"
-            st.metric(label="Condizione Tecnica", value=condizione)
-
-        st.line_chart(df_asset[["Close", "SMA_20", "SMA_50"]])
-        
-        with st.expander("📄 Registro Storico Dati (Ultimi 10 giorni)"):
-            st.dataframe(df_asset[["Close", "SMA_20", "SMA_50", "RSI_14"]].tail(10))
-else:
-    st.error("I server di Yahoo stanno limitando la connessione della piattaforma cloud. Attendi 10 secondi e premi il pulsante 'BYPASS CACHE' nella barra laterale.")
-
-    
