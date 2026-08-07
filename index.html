@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Geopolitical & Chip Monitor</title>
+    <title>Real-Time Chip & Stock Monitor</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0e1117; color: #f0f2f6; margin: 0; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; }
         header { border-bottom: 1px solid #30363d; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center; }
         h1 { margin: 0; font-size: 24px; color: #ffffff; }
         .timestamp { font-size: 14px; color: #8b949e; }
+        .status-badge { background: #238636; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
         .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 20px; transition: transform 0.2s; }
         .card:hover { transform: translateY(-2px); border-color: #58a6ff; }
@@ -20,83 +21,105 @@
         .change { font-size: 16px; font-weight: bold; }
         .positive { color: #39d353; }
         .negative { color: #f85149; }
-        .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #30363d; font-size: 13px; text-align: center; }
-        .metric-box { background: #0e1117; padding: 8px; border-radius: 6px; }
-        .metric-label { color: #8b949e; margin-bottom: 4px; font-size: 11px; }
-        .signal-box { margin-top: 15px; padding: 12px; border-radius: 6px; font-size: 14px; background: #21262d; border-left: 4px solid #8b949e; }
-        .signal-title { font-weight: bold; margin-bottom: 5px; }
-        .signal-desc { font-size: 12px; color: #c9d1d9; line-height: 1.4; }
+        .update-bar { height: 3px; background: #58a6ff; width: 100%; transition: width 1s linear; margin-top: 10px; }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
             <div>
-                <h1>💡 Geopolitical & Chip Monitor</h1>
-                <div class="timestamp" id="update-time">Caricamento dati...</div>
+                <h1>💡 Real-Time Chip & Stock Monitor</h1>
+                <div class="timestamp" id="update-time">Inizializzazione feed...</div>
             </div>
+            <div class="status-badge">🔴 Live 60s</div>
         </header>
 
+        <div id="progress-bar" class="update-bar"></div>
+
         <div class="grid" id="dashboard-grid">
-            <!-- I dati verranno iniettati qui automaticamente da JavaScript -->
+            <!-- I dati in tempo reale verranno inseriti qui -->
         </div>
     </div>
 
     <script>
-        // Carica il file dati.json evitando la cache del browser con un timestamp unico
-        fetch('dati.json?t=' + new Date().getTime())
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById('update-time').innerText = "Ultimo aggiornamento algoritmico: " + data.ultimo_aggiornamento;
-                const grid = document.getElementById('dashboard-grid');
-                grid.innerHTML = '';
+        const TICKERS = {
+            "STM.MI": "STMicroelectronics",
+            "LDO.MI": "Leonardo S.p.A.",
+            "NVDA": "NVIDIA Corp.",
+            "TSM": "Taiwan Semiconductor",
+            "ASML": "ASML Holding",
+            "BTC-USD": "Bitcoin"
+        };
 
-                Object.keys(data.titoli).forEach(ticker => {
-                    const info = data.titoli[ticker];
-                    const isPositive = info.variazione >= 0;
-                    const changeClass = isPositive ? 'positive' : 'negative';
-                    const changeSign = isPositive ? '+' : '';
+        let secondiMancanti = 60;
 
-                    // Definisce il colore del bordo per il segnale geopolitico
-                    let signalColor = '#8b949e';
-                    if(info.segnale.includes('COMPRA')) signalColor = '#39d353';
-                    if(info.segnale.includes('VENDI')) signalColor = '#f85149';
-                    if(info.segnale.includes('TIENI')) signalColor = '#e3b341';
+        function recuperaDatiTempoReale() {
+            const grid = document.getElementById('dashboard-grid');
+            grid.innerHTML = ''; 
+            
+            const listaTickers = Object.keys(TICKERS).join(',');
+            // Utilizza il proxy CORS open-source combinato alle API pubbliche di Yahoo Finance
+            const url = `https://yahoo.com{listaTickers}`;
+            const proxyUrl = `https://corsproxy.io{encodeURIComponent(url)}`;
 
-                    const cardHTML = `
-                        <div class="card">
-                            <div class="ticker-header">
-                                <div>
-                                    <span class="ticker-name">${info.nome}</span>
-                                    <span class="ticker-symbol">${ticker}</span>
+            fetch(proxyUrl)
+                .then(res => res.json())
+                .then(data => {
+                    const quotes = data.quoteResponse.result;
+                    
+                    quotes.forEach(quote => {
+                        const ticker = quote.symbol;
+                        const nome = TICKERS[ticker] || quote.shortName;
+                        const prezzo = quote.regularMarketPrice;
+                        const variazione = quote.regularMarketChangePercent;
+                        
+                        const isPositive = variazione >= 0;
+                        const changeClass = isPositive ? 'positive' : 'negative';
+                        const changeSign = isPositive ? '+' : '';
+                        const valuta = ticker.endsWith('.MI') || ticker === 'ASML' ? '€' : '$';
+
+                        const cardHTML = `
+                            <div class="card">
+                                <div class="ticker-header">
+                                    <div>
+                                        <span class="ticker-name">${nome}</span>
+                                        <span class="ticker-symbol">${ticker}</span>
+                                    </div>
+                                </div>
+                                <div class="price">
+                                    ${valuta} ${prezzo.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </div>
+                                <div class="change ${changeClass}">
+                                    ${changeSign}${variazione.toFixed(2)}% Oggi
                                 </div>
                             </div>
-                            <div class="price">
-                                ${ticker === 'BTC-USD' ? '$' : '€'} ${info.prezzo.toLocaleString('it-IT')}
-                            </div>
-                            <div class="change ${changeClass}">
-                                ${changeSign}${info.variazione}% Oggi
-                            </div>
-                            
-                            <div class="metrics">
-                                <div class="metric-box"><div class="metric-label">SMA 20</div><strong>${info.sma20}</strong></div>
-                                <div class="metric-box"><div class="metric-label">SMA 50</div><strong>${info.sma50}</strong></div>
-                                <div class="metric-box"><div class="metric-label">RSI 14</div><strong>${info.rsi}</strong></div>
-                            </div>
+                        `;
+                        grid.innerHTML += cardHTML;
+                    });
 
-                            <div class="signal-box" style="border-left-color: ${signalColor}">
-                                <div class="signal-title">${info.segnale}</div>
-                                <div class="signal-desc">${info.motivazione}</div>
-                            </div>
-                        </div>
-                    `;
-                    grid.innerHTML += cardHTML;
+                    const ora = new Date();
+                    document.getElementById('update-time').innerText = "Ultimo check dati azionari: " + ora.toLocaleTimeString('it-IT');
+                    secondiMancanti = 60;
+                })
+                .catch(err => {
+                    console.error("Errore fetch borsa:", err);
+                    document.getElementById('update-time').innerText = "Errore di connessione. Tentativo di ripristino...";
                 });
-            })
-            .catch(error => {
-                console.error("Errore nel caricamento dati:", error);
-                document.getElementById('update-time').innerText = "Errore nel caricamento dei dati di mercato.";
-            });
+        }
+
+        // Gestione del timer visivo dei 60 secondi
+        setInterval(() => {
+            secondiMancanti--;
+            const percentuale = (secondiMancanti / 60) * 100;
+            document.getElementById('progress-bar').style.width = percentuale + '%';
+            
+            if (secondiMancanti <= 0) {
+                recuperaDatiTempoReale();
+            }
+        }, 1000);
+
+        // Primo avvio immediato alla ricarica della pagina
+        recuperaDatiTempoReale();
     </script>
 </body>
 </html>
