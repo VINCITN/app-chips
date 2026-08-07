@@ -77,7 +77,7 @@ def elabora_rating_geopolitico(ticker, rsi, macro_trend, dati_globali):
         if rsi < 35 and trend_global_chip == "positivo":
             return "🟢 COMPRA", "Le forti correzioni sul settore automotive offrono un punto d'ingresso. Il trend globale dell'AI (Nvidia/TSMC) fa da traino, mitigando i colli di bottiglia normativi dell'Unione Europea."
         elif rsi > 65:
-            return "🔴 VENDI", "Titolo in ipercomprato tecnico. Le recenti restrizioni USA sull'export di tecnologie avanzate verso l'Asia e l'aumento dei costi dei materiais pesano sui margini industriali UE."
+            return "🔴 VENDI", "Titolo in ipercomprato tecnico. Le recenti restrizioni USA sull'export di tecnologie avanzate verso l'Asia e l'aumento dei costi dei materiali pesano sui margini industriali UE."
         else:
             return "🟡 TIENI", "Fase di consolidamento. Equilibrio instabile tra i sussidi dell'EU Chips Act e il rallentamento della supply chain globale dei semiconduttori tradizionali."
             
@@ -107,24 +107,23 @@ def scarica_dati(tickers_dict, range_periodo):
     dati_finali = {}
     for ticker in tickers_dict.keys():
         try:
-            # Scarica i dati storici tramite yfinance
             ticker_data = yf.Ticker(ticker)
             df = ticker_data.history(period=range_periodo, interval="1d")
             
             if not df.empty:
-                # CORREZIONE INDICE: Rimuoviamo il fuso orario nativo per evitare crash in Streamlit
                 df.index = df.index.tz_localize(None)
-                
                 df_pulito = pd.DataFrame(index=df.index)
-                df_pulito["Close"] = df["Close"].values.astype(float)
                 
-                # Calcoli analitici
-                df_pulito["SMA_20"] = calcola_sma(df_pulito["Close"], 20)
-                df_pulito["SMA_50"] = calcola_sma(df_pulito["Close"], 50)
-                df_pulito["RSI_14"] = calcola_rsi(df_pulito["Close"], 14)
+                # Riempimento dei buchi di dati (giorni festivi o orari asincroni)
+                df_pulito["Close"] = pd.Series(df["Close"].values, index=df.index).ffill().bfill().astype(float)
+                
+                # Calcoli analitici protetti da valori nulli
+                df_pulito["SMA_20"] = calcola_sma(df_pulito["Close"], 20).ffill().bfill()
+                df_pulito["SMA_50"] = calcola_sma(df_pulito["Close"], 50).ffill().bfill()
+                df_pulito["RSI_14"] = calcola_rsi(df_pulito["Close"], 14).ffill().bfill()
                 
                 dati_finali[ticker] = df_pulito
-        except Exception as e:
+        except Exception:
             pass
     return dati_finali
 
@@ -145,13 +144,13 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
     # Dati STM
     stm_close = float(dati["STM.MI"]["Close"].iloc[-1])
     stm_var = float(dati["STM.MI"]["Close"].pct_change().iloc[-1] * 100)
-    stm_rsi = float(dati["STM.MI"]["RSI_14"].iloc[-1])
+    stm_rsi = float(dati["STM.MI"]["RSI_14"].fillna(50).iloc[-1])
     stm_rec, stm_mot = elabora_rating_geopolitico("STM.MI", stm_rsi, trend_global, dati)
 
     # Dati Leonardo
     ldo_close = float(dati["LDO.MI"]["Close"].iloc[-1])
     ldo_var = float(dati["LDO.MI"]["Close"].pct_change().iloc[-1] * 100)
-    ldo_rsi = float(dati["LDO.MI"]["RSI_14"].iloc[-1])
+    ldo_rsi = float(dati["LDO.MI"]["RSI_14"].fillna(50).iloc[-1])
     ldo_rec, ldo_mot = elabora_rating_geopolitico("LDO.MI", ldo_rsi, trend_global, dati)
 
     # --- RIGA TITOLO: CONFRONTO DIRETTO IN SINTESI ---
@@ -174,19 +173,20 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
 
     # --- GRAFICO DI CONFRONTO GENERALE DINAMICO (%) ---
     st.subheader(f"📊 Confronto delle Performance Relative ({stringa_periodo_maiuscolo})")
-    st.write("I prezzi sono normalizzati (Base iniziale = 0%) a partire dal primo giorno dell'intervallo selezionato.")
+    st.write("I prezzi sono normalizzati (Base iniziale = 0%) a partire dal primo giorno utile dell'intervallo selezionato.")
     
     df_confronto = pd.DataFrame()
     for t_key in ["STM.MI", "LDO.MI", "NVDA", "TSM", "ASML"]:
         if t_key in dati and not dati[t_key].empty:
-            # CORREZIONE FILTRO %: Estraiamo il primo valore reale usando .iloc[0]
-            prezzo_iniziale = float(dati[t_key]["Close"].iloc[0])
-            df_confronto[TICKERS[t_key]] = ((dati[t_key]["Close"] - prezzo_iniziale) / prezzo_iniziale) * 100
+            # CORREZIONE SICURA INDICE: estrazione sicura tramite .iloc[0] protetta da buoti di dati
+            prezzo_iniziale = float(dati[t_key]["Close"].dropna().iloc[0])
+            if prezzo_iniziale > 0:
+                df_confronto[TICKERS[t_key]] = ((dati[t_key]["Close"] - prezzo_iniziale) / prezzo_iniziale) * 100
             
     if not df_confronto.empty:
         st.line_chart(df_confronto)
     else:
-        st.warning("Dati insufficienti per generare il grafico di confronto.")
+        st.warning("Dati storici non pronti. Aggiorna la pagina.")
 
     st.markdown("---")
     
@@ -202,11 +202,11 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
     
     m1, m2, m3 = st.columns(3)
     with m1:
-        st.metric(label="Prezzo Attuale", value=f"{float(df_asset['Close'].iloc[-1]):.2f}", delta=f"{float(df_asset['Close'].pct_change().iloc[-1]*100):.2f}%")
+        st.metric(label="Prezzo Attuale", value=f"{float(df_asset['Close'].iloc[-1]):.2f}", delta=f"{float(df_asset['Close'].pct_change().fillna(0).iloc[-1]*100):.2f}%")
     with m2:
-        st.metric(label="RSI (14d)", value=f"{float(df_asset['RSI_14'].iloc[-1]):.2f}")
+        st.metric(label="RSI (14d)", value=f"{float(df_asset['RSI_14'].fillna(50).iloc[-1]):.2f}")
     with m3:
-        current_rsi = float(df_asset['RSI_14'].iloc[-1])
+        current_rsi = float(df_asset['RSI_14'].fillna(50).iloc[-1])
         condizione = "🚨 Ipercomprato" if current_rsi > 70 else "🛒 Ipervenduto" if current_rsi < 30 else "⚖️ Neutrale"
         st.metric(label="Condizione Tecnica", value=condizione)
 
@@ -215,4 +215,4 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
     with st.expander("📄 Registro Storico Dati (Ultimi 10 giorni)"):
         st.dataframe(df_asset[["Close", "SMA_20", "SMA_50", "RSI_14"]].tail(10))
 else:
-    st.error("Servizi temporaneamente lenti nel recupero dati. Modifica il periodo o forza l'aggiornamento dalla barra laterale.")
+    st.error("I server di Yahoo stanno limitando la connessione della piattaforma cloud. Attendi 10 secondi e premi il pulsante 'BYPASS CACHE' nella barra laterale.")
