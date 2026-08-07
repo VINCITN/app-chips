@@ -21,6 +21,12 @@
         .change { font-size: 16px; font-weight: bold; }
         .positive { color: #39d353; }
         .negative { color: #f85149; }
+        .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 15px; padding-top: 15px; border-top: 1px solid #30363d; font-size: 13px; text-align: center; }
+        .metric-box { background: #0e1117; padding: 8px; border-radius: 6px; }
+        .metric-label { color: #8b949e; margin-bottom: 4px; font-size: 11px; }
+        .signal-box { margin-top: 15px; padding: 12px; border-radius: 6px; font-size: 14px; background: #21262d; border-left: 4px solid #8b949e; }
+        .signal-title { font-weight: bold; margin-bottom: 5px; }
+        .signal-desc { font-size: 12px; color: #c9d1d9; line-height: 1.4; }
         .update-bar { height: 3px; background: #58a6ff; width: 100%; transition: width 1s linear; margin-top: 10px; }
     </style>
 </head>
@@ -28,17 +34,15 @@
     <div class="container">
         <header>
             <div>
-                <h1>💡 Real-Time Chip & Stock Monitor</h1>
+                <h1>💡 Real-Time Geopolitical & Chip Monitor</h1>
                 <div class="timestamp" id="update-time">Inizializzazione feed...</div>
+                <div class="timestamp" id="algo-time" style="margin-top: 5px; font-size: 12px; color: #58a6ff;"></div>
             </div>
             <div class="status-badge">🔴 Live 60s</div>
         </header>
 
         <div id="progress-bar" class="update-bar"></div>
-
-        <div class="grid" id="dashboard-grid">
-            <!-- I dati in tempo reale verranno inseriti qui -->
-        </div>
+        <div class="grid" id="dashboard-grid"></div>
     </div>
 
     <script>
@@ -52,19 +56,29 @@
         };
 
         let secondiMancanti = 60;
+        let datiAnalisiPython = {};
+
+        // Carica i dati algoritmici lenti generati da Python
+        function caricaAnalisiPython() {
+            return fetch('analisi.json?t=' + new Date().getTime())
+                .then(res => res.json())
+                .then(data => {
+                    datiAnalisiPython = data.analisi || {};
+                    document.getElementById('algo-time').innerText = "Ultimo report macro Python: " + data.ultimo_aggiornamento_algoritmo;
+                })
+                .catch(() => console.log("File analisi.json non ancora generato da Python. Salto la build."));
+        }
 
         function recuperaDatiTempoReale() {
             const grid = document.getElementById('dashboard-grid');
-            grid.innerHTML = ''; 
-            
             const listaTickers = Object.keys(TICKERS).join(',');
-            // Utilizza il proxy CORS open-source combinato alle API pubbliche di Yahoo Finance
             const url = `https://yahoo.com{listaTickers}`;
             const proxyUrl = `https://corsproxy.io{encodeURIComponent(url)}`;
 
             fetch(proxyUrl)
                 .then(res => res.json())
                 .then(data => {
+                    grid.innerHTML = ''; 
                     const quotes = data.quoteResponse.result;
                     
                     quotes.forEach(quote => {
@@ -77,6 +91,29 @@
                         const changeClass = isPositive ? 'positive' : 'negative';
                         const changeSign = isPositive ? '+' : '';
                         const valuta = ticker.endsWith('.MI') || ticker === 'ASML' ? '€' : '$';
+
+                        // Verifica se Python ha calcolato i dati algoritmici per questo ticker
+                        const haAnalisi = datiAnalisiPython[ticker];
+                        let bloccoAlgoritmico = '';
+
+                        if (haAnalisi) {
+                            let signalColor = '#8b949e';
+                            if(haAnalisi.segnale.includes('COMPRA')) signalColor = '#39d353';
+                            if(haAnalisi.segnale.includes('VENDI')) signalColor = '#f85149';
+                            if(haAnalisi.segnale.includes('TIENI')) signalColor = '#e3b341';
+
+                            bloccoAlgoritmico = `
+                                <div class="metrics">
+                                    <div class="metric-box"><div class="metric-label">SMA 20</div><strong>${haAnalisi.sma20}</strong></div>
+                                    <div class="metric-box"><div class="metric-label">SMA 50</div><strong>${haAnalisi.sma50}</strong></div>
+                                    <div class="metric-box"><div class="metric-label">RSI 14</div><strong>${haAnalisi.rsi}</strong></div>
+                                </div>
+                                <div class="signal-box" style="border-left-color: ${signalColor}">
+                                    <div class="signal-title">${haAnalisi.segnale}</div>
+                                    <div class="signal-desc">${haAnalisi.motivazione}</div>
+                                </div>
+                            `;
+                        }
 
                         const cardHTML = `
                             <div class="card">
@@ -92,22 +129,22 @@
                                 <div class="change ${changeClass}">
                                     ${changeSign}${variazione.toFixed(2)}% Oggi
                                 </div>
+                                ${bloccoAlgoritmico}
                             </div>
                         `;
                         grid.innerHTML += cardHTML;
                     });
 
                     const ora = new Date();
-                    document.getElementById('update-time').innerText = "Ultimo check dati azionari: " + ora.toLocaleTimeString('it-IT');
+                    document.getElementById('update-time').innerText = "Ultimo check prezzi live: " + ora.toLocaleTimeString('it-IT');
                     secondiMancanti = 60;
                 })
                 .catch(err => {
-                    console.error("Errore fetch borsa:", err);
-                    document.getElementById('update-time').innerText = "Errore di connessione. Tentativo di ripristino...";
+                    console.error("Errore fetch live:", err);
                 });
         }
 
-        // Gestione del timer visivo dei 60 secondi
+        // Timer visivo dei 60 secondi
         setInterval(() => {
             secondiMancanti--;
             const percentuale = (secondiMancanti / 60) * 100;
@@ -118,8 +155,10 @@
             }
         }, 1000);
 
-        // Primo avvio immediato alla ricarica della pagina
-        recuperaDatiTempoReale();
+        // Avvio sequenziale: carica prima i dati statici di Python, poi fa partire le quotazioni al minuto
+        caricaAnalisiPython().then(() => {
+            recuperaDatiTempoReale();
+        });
     </script>
 </body>
 </html>
