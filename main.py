@@ -78,7 +78,7 @@ def elabora_rating_geopolitico(ticker, rsi, macro_trend, dati_globali):
         if rsi < 35 and trend_global_chip == "positivo":
             return "🟢 COMPRA", "Le forti correzioni sul settore automotive offrono un punto d'ingresso. Il trend globale dell'AI (Nvidia/TSMC) fa da traino, mitigando i colli di bottiglia normativi dell'Unione Europea."
         elif rsi > 65:
-            return "🔴 VENDI", "Titolo in ipercomprato tecnico. Le recenti restrizioni USA sull'export di tecnologie avanzate verso l'Asia e l'aumento dei costi dei materiali pesano sui margini industriali UE."
+            return "🔴 VENDI", "Titolo in ipercomprato tecnico. Le recenti restrizioni USA sull'export di tecnologie avanzate verso l'Asia e l'aumento dei costi dei materiali pesano sui margins industriali UE."
         else:
             return "🟡 TIENI", "Fase di consolidamento. Equilibrio instabile tra i sussidi dell'EU Chips Act e il rallentamento della supply chain globale dei semiconduttori tradizionali."
             
@@ -102,7 +102,7 @@ TICKERS = {
     "BTC-USD": "Bitcoin",
 }
 
-# --- FUNZIONE DI SCARICAMENTO DATI CON DOPPIO TUNNEL ANTIBLOCCO ---
+# --- FUNZIONE DI SCARICAMENTO DATI ULTRA-STABILE ---
 @st.cache_data(ttl=120)
 def scarica_dati(tickers_dict, range_periodo):
     dati_finali = {}
@@ -116,7 +116,6 @@ def scarica_dati(tickers_dict, range_periodo):
     for ticker in tickers_dict.keys():
         df_pulito = pd.DataFrame()
         
-        # TENTATIVO 1: Tramite la libreria yfinance standard
         try:
             time.sleep(0.3)
             df = yf.download(ticker, period=range_periodo, interval="1d", session=sessione, progress=False)
@@ -131,10 +130,8 @@ def scarica_dati(tickers_dict, range_periodo):
         except Exception:
             df_pulito = pd.DataFrame()
             
-        # TENTATIVO 2 (FALLBACK ANTI-BLOCCO): Se yfinance fallisce o è vuoto, interroghiamo forzatamente l'API JSON grezza
         if df_pulito.empty:
             try:
-                # Converte l'intervallo per l'API nativa
                 intervallo_api = "6mo" if range_periodo == "6mo" else "3mo" if range_periodo == "3mo" else "1mo"
                 url = f"https://yahoo.com{ticker}?range={intervallo_api}&interval=1d"
                 risposta = sessione.get(url, timeout=10)
@@ -156,7 +153,6 @@ def scarica_dati(tickers_dict, range_periodo):
             except Exception:
                 pass
                 
-        # Elaborazione finale degli indicatori se abbiamo recuperato i prezzi da uno dei due metodi
         if not df_pulito.empty:
             df_pulito["Close"] = df_pulito["Close"].ffill().bfill().astype(float)
             df_pulito["SMA_20"] = calcola_sma(df_pulito["Close"], 20).ffill().bfill()
@@ -196,8 +192,9 @@ if dati and ("STM.MI" in dati or "LDO.MI" in dati):
             st.metric(label="Prezzo e Andamento Giornaliero", value=f"{stm_close:.2f} EUR", delta=f"{stm_var:.2f}%")
             st.markdown(f"**Segnale Algoritmico:** `{stm_rec}`")
             st.caption(f"ℹ️ {stm_mot}")
-        else:
-            st.warning("Dati STM temporaneamente bloccati dal server Yahoo. Riprova tra poco.")
+            
+        if "STM.MI" not in dati:
+            st.warning("Dati STM in attesa di sblocco temporaneo.")
         
     with row_col2:
         if "LDO.MI" in dati:
@@ -210,4 +207,11 @@ if dati and ("STM.MI" in dati or "LDO.MI" in dati):
             st.metric(label="Prezzo e Andamento Giornaliero", value=f"{ldo_close:.2f} EUR", delta=f"{ldo_var:.2f}%")
             st.markdown(f"**Segnale Algoritmico:** `{ldo_rec}`")
             st.caption(f"ℹ️ {ldo_mot}")
-        else:
+            
+        if "LDO.MI" not in dati:
+            st.warning("Dati Leonardo S.p.A. temporaneamente non disponibili.")
+
+    st.markdown("---")
+
+    # --- GRAFICO DI CONFRONTO GENERALE DINAMICO (%) ---
+    st.subheader(f"📊 Confronto delle Performance Relative ({stringa_periodo_maiuscolo})")
