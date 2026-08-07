@@ -207,8 +207,7 @@ if dati and ("STM.MI" in dati or "LDO.MI" in dati):
         st.warning("Dati storici insufficienti per generare il grafico comparativo.")
 
     st.markdown("---")
-    
-    # --- SELEZIONE PER IL GRAFICO SOTTOSTANTE ---
+        # --- SELEZIONE PER IL GRAFICO SOTTOSTANTE ---
     st.subheader("📈 Analisi Tecnica Dettagliata (Titolo Singolo)")
     asset_scelto = st.selectbox(
         "Scegli quale asset visualizzare sul grafico con Medie Mobili:", 
@@ -221,3 +220,19 @@ if dati and ("STM.MI" in dati or "LDO.MI" in dati):
         
         m1, m2, m3 = st.columns(3)
         with m1:
+            st.metric(label="Prezzo Attuale", value=f"{float(df_asset['Close'].iloc[-1]):.2f}", delta=f"{float(df_asset['Close'].pct_change().fillna(0).iloc[-1]*100):.2f}%")
+        with m2:
+            st.metric(label="RSI (14d)", value=f"{float(df_asset['RSI_14'].fillna(50).iloc[-1]):.2f}")
+        with m3:
+            current_rsi = float(df_asset['RSI_14'].fillna(50).iloc[-1])
+            condizione = "🚨 Ipercomprato" if current_rsi > 70 else "🛒 Ipervenduto" if current_rsi < 30 else "⚖️ Neutrale"
+            st.metric(label="Condizione Tecnica", value=condizione)
+
+        st.line_chart(df_asset[["Close", "SMA_20", "SMA_50"]])
+        
+        with st.expander("📄 Registro Storico Dati (Ultimi 10 giorni)"):
+            st.dataframe(df_asset[["Close", "SMA_20", "SMA_50", "RSI_14"]].tail(10))
+else:
+    st.error("I server di Yahoo stanno limitando la connessione della piattaforma cloud. Attendi 10 secondi e premi il pulsante 'BYPASS CACHE' nella barra laterale.")
+
+    
