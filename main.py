@@ -88,7 +88,7 @@ def elabora_rating_geopolitico(ticker, rsi, macro_trend, dati_globali):
         elif rsi > 75:
             return "🔴 VENDI", "Ipercomprato estremo dettato dalle tensioni geopolitiche già scontate dal mercato. Rischio di stallo se gli USA inaspriscono i controlli ITAR sull'esportazione di microcomponenti."
         else:
-            return "🟡 TIENI", "Mantenere in portafoglio. La domanda nel comparto Aerospace & Defence rimane solida, ma i colli di bottiglia negli approvvigionamenti di chip avanzati in Asia suggeriscono cautela."
+            return "🟡 TIENI", "Mantenere in portafoglio. La domanda nel COMparto Aerospace & Defence rimane solida, ma i colli di bottiglia negli approvvigionamenti di chip avanzati in Asia suggeriscono cautela."
     
     return "⚖️ NEUTRALE", "Nessuna anomalia macroeconomica rilevata."
 
@@ -170,7 +170,7 @@ if dati and ("STM.MI" in dati or "LDO.MI" in dati):
             st.markdown(f"**Segnale Algoritmico:** `{stm_rec}`")
             st.caption(f"ℹ️ {stm_mot}")
         else:
-            st.warning("Dati STM temporaneamente in coda. Premi 'BYPASS CACHE' tra 5 secondi.")
+            st.warning("Dati STM in coda. Premi 'BYPASS CACHE' tra 5 secondi.")
         
     with row_col2:
         if "LDO.MI" in dati:
@@ -197,7 +197,7 @@ if dati and ("STM.MI" in dati or "LDO.MI" in dati):
         if t_key in dati and not dati[t_key].empty:
             serie_valida = dati[t_key]["Close"].dropna()
             if not serie_valida.empty:
-                prezzo_iniziale = float(serie_valida.iloc)
+                prezzo_iniziale = float(serie_valida.iloc[0])
                 if prezzo_iniziale > 0:
                     df_confronto[TICKERS[t_key]] = ((dati[t_key]["Close"] - prezzo_iniziale) / prezzo_iniziale) * 100
             
@@ -219,5 +219,6 @@ if dati and ("STM.MI" in dati or "LDO.MI" in dati):
     if asset_scelto in dati:
         df_asset = dati[asset_scelto]
         
+        # ELIMINATO L'USO DI WITH PER EVITARE GLI INDENTATION ERROR
         m1, m2, m3 = st.columns(3)
-        with m1:
+        
