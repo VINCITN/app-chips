@@ -88,7 +88,7 @@ def elabora_rating_geopolitico(ticker, rsi, macro_trend, dati_globali):
         elif rsi > 75:
             return "🔴 VENDI", "Ipercomprato estremo dettato dalle tensioni geopolitiche già scontate dal mercato. Rischio di stallo se gli USA inaspriscono i controlli ITAR sull'esportazione di microcomponenti."
         else:
-            return "🟡 TIENI", "Mantenere in portafoglio. La domanda nel COMparto Aerospace & Defence rimane solida, ma i colli di bottiglia negli approvvigionamenti di chip avanzati in Asia suggeriscono cautela."
+            return "🟡 TIENI", "Mantenere in portafoglio. La domanda nel comparto Aerospace & Defence rimane solida, ma i colli di bottiglia negli approvvigionamenti di chip avanzati in Asia suggeriscono cautela."
     
     return "⚖️ NEUTRALE", "Nessuna anomalia macroeconomica rilevata."
 
@@ -102,41 +102,68 @@ TICKERS = {
     "BTC-USD": "Bitcoin",
 }
 
-# --- FUNZIONE DI SCARICAMENTO DATI ULTRA-STABILE ---
+# --- FUNZIONE DI SCARICAMENTO DATI CON DOPPIO TUNNEL ANTIBLOCCO ---
 @st.cache_data(ttl=120)
 def scarica_dati(tickers_dict, range_periodo):
     dati_finali = {}
     
-    sessione = requests.Session()
-    sessione.headers.update({
+    headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    })
+    }
+    sessione = requests.Session()
+    sessione.headers.update(headers)
     
     for ticker in tickers_dict.keys():
+        df_pulito = pd.DataFrame()
+        
+        # TENTATIVO 1: Tramite la libreria yfinance standard
         try:
-            # ANTIBLOCCO: ritardo controllato per non sovraccaricare Yahoo
-            time.sleep(0.5)
-            
+            time.sleep(0.3)
             df = yf.download(ticker, period=range_periodo, interval="1d", session=sessione, progress=False)
-            
             if not df.empty:
                 df.index = df.index.tz_localize(None)
                 df_pulito = pd.DataFrame(index=df.index)
-                
                 if isinstance(df.columns, pd.MultiIndex):
                     prezzi_chiusura = df["Close"][ticker].values
                 else:
                     prezzi_chiusura = df["Close"].values
-                
-                df_pulito["Close"] = pd.Series(prezzi_chiusura, index=df.index).ffill().bfill().astype(float)
-                
-                df_pulito["SMA_20"] = calcola_sma(df_pulito["Close"], 20).ffill().bfill()
-                df_pulito["SMA_50"] = calcola_sma(df_pulito["Close"], 50).ffill().bfill()
-                df_pulito["RSI_14"] = calcola_rsi(df_pulito["Close"], 14).ffill().bfill()
-                
-                dati_finali[ticker] = df_pulito
+                df_pulito["Close"] = pd.Series(prezzi_chiusura, index=df.index)
         except Exception:
-            pass
+            df_pulito = pd.DataFrame()
+            
+        # TENTATIVO 2 (FALLBACK ANTI-BLOCCO): Se yfinance fallisce o è vuoto, interroghiamo forzatamente l'API JSON grezza
+        if df_pulito.empty:
+            try:
+                # Converte l'intervallo per l'API nativa
+                intervallo_api = "6mo" if range_periodo == "6mo" else "3mo" if range_periodo == "3mo" else "1mo"
+                url = f"https://yahoo.com{ticker}?range={intervallo_api}&interval=1d"
+                risposta = sessione.get(url, timeout=10)
+                
+                if risposta.status_code == 200:
+                    json_data = risposta.json()
+                    result = json_data["chart"]["result"][0]
+                    timestamps = result["timestamp"]
+                    quotes = result["indicators"]["quote"][0]
+                    close_prices = quotes["close"]
+                    
+                    dates = [datetime.fromtimestamp(ts).date() for ts in timestamps]
+                    df_api = pd.DataFrame(index=pd.to_datetime(dates))
+                    df_api["Close"] = pd.Series(close_prices, index=df_api.index).astype(float)
+                    df_api.dropna(subset=["Close"], inplace=True)
+                    
+                    if not df_api.empty:
+                        df_pulito = df_api.copy()
+            except Exception:
+                pass
+                
+        # Elaborazione finale degli indicatori se abbiamo recuperato i prezzi da uno dei due metodi
+        if not df_pulito.empty:
+            df_pulito["Close"] = df_pulito["Close"].ffill().bfill().astype(float)
+            df_pulito["SMA_20"] = calcola_sma(df_pulito["Close"], 20).ffill().bfill()
+            df_pulito["SMA_50"] = calcola_sma(df_pulito["Close"], 50).ffill().bfill()
+            df_pulito["RSI_14"] = calcola_rsi(df_pulito["Close"], 14).ffill().bfill()
+            dati_finali[ticker] = df_pulito
+            
     return dati_finali
 
 dati = scarica_dati(TICKERS, periodo_scelto)
@@ -170,7 +197,7 @@ if dati and ("STM.MI" in dati or "LDO.MI" in dati):
             st.markdown(f"**Segnale Algoritmico:** `{stm_rec}`")
             st.caption(f"ℹ️ {stm_mot}")
         else:
-            st.warning("Dati STM in coda. Premi 'BYPASS CACHE' tra 5 secondi.")
+            st.warning("Dati STM temporaneamente bloccati dal server Yahoo. Riprova tra poco.")
         
     with row_col2:
         if "LDO.MI" in dati:
@@ -184,41 +211,3 @@ if dati and ("STM.MI" in dati or "LDO.MI" in dati):
             st.markdown(f"**Segnale Algoritmico:** `{ldo_rec}`")
             st.caption(f"ℹ️ {ldo_mot}")
         else:
-            st.warning("Dati Leonardo S.p.A. temporaneamente non disponibili.")
-
-    st.markdown("---")
-
-    # --- GRAFICO DI CONFRONTO GENERALE DINAMICO (%) ---
-    st.subheader(f"📊 Confronto delle Performance Relative ({stringa_periodo_maiuscolo})")
-    st.write("I prezzi sono normalizzati (Base iniziale = 0%) a partire dal primo giorno utile dell'intervallo selezionato.")
-    
-    df_confronto = pd.DataFrame()
-    for t_key in ["STM.MI", "LDO.MI", "NVDA", "TSM", "ASML"]:
-        if t_key in dati and not dati[t_key].empty:
-            serie_valida = dati[t_key]["Close"].dropna()
-            if not serie_valida.empty:
-                prezzo_iniziale = float(serie_valida.iloc[0])
-                if prezzo_iniziale > 0:
-                    df_confronto[TICKERS[t_key]] = ((dati[t_key]["Close"] - prezzo_iniziale) / prezzo_iniziale) * 100
-            
-    if not df_confronto.empty:
-        st.line_chart(df_confronto)
-    else:
-        st.warning("Dati storici insufficienti per generare il grafico comparativo.")
-
-    st.markdown("---")
-    
-    # --- SELEZIONE PER IL GRAFICO SOTTOSTANTE ---
-    st.subheader("📈 Analisi Tecnica Dettagliata (Titolo Singolo)")
-    asset_scelto = st.selectbox(
-        "Scegli quale asset visualizzare sul grafico con Medie Mobili:", 
-        options=list(dati.keys()), 
-        format_func=lambda x: f"{TICKERS[x]} ({x})"
-    )
-    
-    if asset_scelto in dati:
-        df_asset = dati[asset_scelto]
-        
-        # ELIMINATO L'USO DI WITH PER EVITARE GLI INDENTATION ERROR
-        m1, m2, m3 = st.columns(3)
-        
