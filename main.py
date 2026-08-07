@@ -1,60 +1,20 @@
 import time
-from datetime import datetime, timedelta
+import json
+from datetime import datetime
 import numpy as np
 import pandas as pd
-import streamlit as st
 import yfinance as yf
 import requests
 
-st.set_page_config(page_title="Crypto & Chip Dashboard", layout="wide")
-
-# Metadati per visualizzazione PWA a tutto schermo su iPhone
-st.components.v1.html(
-    """
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    """,
-    height=0,
-)
-
-if "ultimo_aggiornamento_reale" not in st.session_state:
-    st.session_state.ultimo_aggiornamento_reale = (
-        datetime.now() - timedelta(minutes=5)
-    )
-
-# --- BARRA LATERALE CON TIMER E CONTROLLO ---
-with st.sidebar:
-    st.header("⏱️ Stato Connessione API")
-    ora_attuale = datetime.now()
-    secondi_passati = (
-        ora_attuale - st.session_state.ultimo_aggiornamento_reale
-    ).total_seconds()
-    secondi_mancanti = max(0, int(120 - secondi_passati))
-
-    if secondi_mancanti > 0:
-        st.metric(label="Prossimo aggiornamento sicuro tra:", value=f"{secondi_mancanti} secondi")
-        st.info("🔄 Lettura da memoria cache di Streamlit.")
-    else:
-        st.success("🟢 Server pronti per una richiesta diretta!")
-
-    st.markdown("---")
-    
-    st.header("📅 Orizzonte Temporale")
-    periodo_scelto = st.selectbox(
-        "Seleziona il periodo di analisi:",
-        options=["1mo", "3mo", "6mo"],
-        format_func=lambda x: "1 Mese" if x == "1mo" else "3 Mesi" if x == "3mo" else "6 Mesi"
-    )
-    
-    st.markdown("---")
-    if st.button("⚡ BYPASS CACHE: Tempo Reale Ora"):
-        st.toast("Richiesta immediata dati freschi tramite tunnel protetto.")
-        st.cache_data.clear() 
-        st.session_state.ultimo_aggiornamento_reale = datetime.now()
-        st.rerun()
-
-    st.title("📊 Dashboard Algoritmica Semiconduttori & Geopolitica")
-    st.write("Analisi quantitativa unita all'impatto delle politiche USA, EU e Asia.")
+# --- CONFIGURAZIONE ---
+TICKERS = {
+    "STM.MI": "STMicroelectronics",
+    "LDO.MI": "Leonardo S.p.A.",
+    "NVDA": "NVIDIA Corp.",
+    "TSM": "Taiwan Semiconductor",
+    "ASML": "ASML Holding",
+    "BTC-USD": "Bitcoin",
+}
 
 # --- FUNZIONI DI CALCOLO MATEMATICO ---
 def calcola_sma(series, window):
@@ -70,148 +30,101 @@ def calcola_rsi(series, window=14):
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
 
-# --- GENERATORE DI SEGNALI GEOPOLITICI E DI MERCATO ---
-def elabora_rating_geopolitico(ticker, rsi, macro_trend, dati_globali):
+# --- GENERATORE DI SEGNALI GEOPOLITICI ---
+def elabora_rating_geopolitico(ticker, rsi, macro_trend):
     trend_global_chip = "positivo" if macro_trend > 0 else "debole"
     
     if ticker == "STM.MI":
         if rsi < 35 and trend_global_chip == "positivo":
-            return "🟢 COMPRA", "Le forti correzioni sul settore automotive offrono un punto d'ingresso. Il trend globale dell'AI (Nvidia/TSMC) fa da traino, mitigando i colli di bottiglia normativi dell'Unione Europea."
+            return "🟢 COMPRA", "Le forti correzioni sul settore automotive offrono un punto d'ingresso. Il trend globale dell'AI (Nvidia/TSMC) fa da traino."
         elif rsi > 65:
-            return "🔴 VENDI", "Titolo in ipercomprato tecnico. Le recenti restrizioni USA sull'export di tecnologie avanzate verso l'Asia e l'aumento dei costi dei materiali pesano sui margins industriali UE."
+            return "🔴 VENDI", "Titolo in ipercomprato tecnico. Le restrizioni USA sull'export e l'aumento dei costi pesano sui margini UE."
         else:
-            return "🟡 TIENI", "Fase di consolidamento. Equilibrio instabile tra i sussidi dell'EU Chips Act e il rallentamento della supply chain globale dei semiconduttori tradizionali."
+            return "🟡 TIENI", "Fase di consolidamento. Equilibrio instabile tra i sussidi dell'EU Chips Act e il rallentamento della supply chain."
             
     elif ticker == "LDO.MI":
         if trend_global_chip == "positivo" and rsi < 55:
-            return "🟢 COMPRA", "Il superciclo della difesa globale e l'aumento dei budget militari in Europa proteggono il portafoglio ordini. La solida stabilità produttiva di TSMC garantisce i componenti elettronici critici."
+            return "🟢 COMPRA", "Il superciclo della difesa globale e l'aumento dei budget militari in Europa proteggono il portafoglio ordini."
         elif rsi > 75:
-            return "🔴 VENDI", "Ipercomprato estremo dettato dalle tensioni geopolitiche già scontate dal mercato. Rischio di stallo se gli USA inaspriscono i controlli ITAR sull'esportazione di microcomponenti."
+            return "🔴 VENDI", "Ipercomprato estremo dettato dalle tensioni geopolitiche già scontate dal mercato."
         else:
-            return "🟡 TIENI", "Mantenere in portafoglio. La domanda nel comparto Aerospace & Defence rimane solida, ma i colli di bottiglia negli approvvigionamenti di chip avanzati in Asia suggeriscono cautela."
+            return "🟡 TIENI", "Mantenere in portafoglio. La domanda nel comparto Aerospace & Defence rimane solida."
     
     return "⚖️ NEUTRALE", "Nessuna anomalia macroeconomica rilevata."
 
-# --- TICKERS DI MERCATO ---
-TICKERS = {
-    "STM.MI": "STMicroelectronics",
-    "LDO.MI": "Leonardo S.p.A.",
-    "NVDA": "NVIDIA Corp.",
-    "TSM": "Taiwan Semiconductor",
-    "ASML": "ASML Holding",
-    "BTC-USD": "Bitcoin",
-}
-
-# --- FUNZIONE DI SCARICAMENTO DATI ULTRA-STABILE ---
-@st.cache_data(ttl=120)
-def scarica_dati(tickers_dict, range_periodo):
-    dati_finali = {}
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+def scarica_e_analizza():
+    dati_output = {
+        "ultimo_aggiornamento": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "titoli": {}
     }
+    
+    headers = {"User-Agent": "Mozilla/5.0"}
     sessione = requests.Session()
     sessione.headers.update(headers)
     
-    for ticker in tickers_dict.keys():
-        df_pulito = pd.DataFrame()
-        
+    # Calcolo del trend globale dei chip basato su NVDA, TSM, ASML
+    trend_global = 0.0
+    variazioni = []
+    
+    # Primo ciclo per raccogliere dati finanziari stabili
+    dfs = {}
+    for ticker in TICKERS.keys():
         try:
-            time.sleep(0.3)
-            df = yf.download(ticker, period=range_periodo, interval="1d", session=sessione, progress=False)
+            df = yf.download(ticker, period="6mo", interval="1d", session=sessione, progress=False)
             if not df.empty:
                 df.index = df.index.tz_localize(None)
-                df_pulito = pd.DataFrame(index=df.index)
                 if isinstance(df.columns, pd.MultiIndex):
-                    prezzi_chiusura = df["Close"][ticker].values
+                    prezzi = df["Close"][ticker].values
                 else:
-                    prezzi_chiusura = df["Close"].values
-                df_pulito["Close"] = pd.Series(prezzi_chiusura, index=df.index)
-        except Exception:
-            df_pulito = pd.DataFrame()
-            
-        if df_pulito.empty:
-            try:
-                intervallo_api = "6mo" if range_periodo == "6mo" else "3mo" if range_periodo == "3mo" else "1mo"
-                url = f"https://yahoo.com{ticker}?range={intervallo_api}&interval=1d"
-                risposta = sessione.get(url, timeout=10)
+                    prezzi = df["Close"].values
                 
-                if risposta.status_code == 200:
-                    json_data = risposta.json()
-                    result = json_data["chart"]["result"][0]
-                    timestamps = result["timestamp"]
-                    quotes = result["indicators"]["quote"][0]
-                    close_prices = quotes["close"]
-                    
-                    dates = [datetime.fromtimestamp(ts).date() for ts in timestamps]
-                    df_api = pd.DataFrame(index=pd.to_datetime(dates))
-                    df_api["Close"] = pd.Series(close_prices, index=df_api.index).astype(float)
-                    df_api.dropna(subset=["Close"], inplace=True)
-                    
-                    if not df_api.empty:
-                        df_pulito = df_api.copy()
-            except Exception:
-                pass
+                df_pulito = pd.DataFrame(index=df.index)
+                df_pulito["Close"] = pd.Series(prezzi, index=df.index).ffill().bfill().astype(float)
+                dfs[ticker] = df_pulito
                 
-        if not df_pulito.empty:
-            df_pulito["Close"] = df_pulito["Close"].ffill().bfill().astype(float)
-            df_pulito["SMA_20"] = calcola_sma(df_pulito["Close"], 20).ffill().bfill()
-            df_pulito["SMA_50"] = calcola_sma(df_pulito["Close"], 50).ffill().bfill()
-            df_pulito["RSI_14"] = calcola_rsi(df_pulito["Close"], 14).ffill().bfill()
-            dati_finali[ticker] = df_pulito
+                # Calcola variazione percentuale odierna per il trend macro
+                if len(df_pulito) > 1:
+                    pct = (df_pulito["Close"].iloc[-1] - df_pulito["Close"].iloc[-2]) / df_pulito["Close"].iloc[-2]
+                    if ticker in ["NVDA", "TSM", "ASML"]:
+                        variazioni.append(pct)
+        except Exception as e:
+            print(f"Errore su {ticker}: {e}")
+
+    if variazioni:
+        trend_global = sum(variazioni) / len(variazioni)
+
+    # Secondo ciclo per calcolare indicatori e segnali geopolitici
+    for ticker, nome in TICKERS.items():
+        if ticker in dfs:
+            df = dfs[ticker]
+            close_prices = df["Close"]
             
-    return dati_finali
+            # Calcolo indicatori algoritmici
+            sma20 = calcola_sma(close_prices, 20).iloc[-1]
+            sma50 = calcola_sma(close_prices, 50).iloc[-1]
+            rsi14 = calcola_rsi(close_prices, 14).iloc[-1]
+            prezzo_attuale = float(close_prices.iloc[-1])
+            prezzo_precedente = float(close_prices.iloc[-2]) if len(close_prices) > 1 else prezzo_attuale
+            variazione_pct = ((prezzo_attuale - prezzo_precedente) / prezzo_precedente) * 100
 
-dati = scarica_dati(TICKERS, periodo_scelto)
+            # Genera segnale geopolitico solo per STM e Leonardo
+            segnale, motivazione = elabora_rating_geopolitico(ticker, rsi14, trend_global)
 
-# --- INTERFACCIA PRINCIPALE ---
-stringa_periodo_maiuscolo = "1 MESE" if periodo_scelto == "1mo" else "3 MESI" if periodo_scelto == "3mo" else "6 MESI"
-st.title(f"💡 Geopolitical & Chip Monitor ({stringa_periodo_maiuscolo})")
-
-if dati and ("STM.MI" in dati or "LDO.MI" in dati):
-    try:
-        nvda_pct = dati["NVDA"]["Close"].pct_change().fillna(0).iloc[-1] if "NVDA" in dati else 0
-        tsm_pct = dati["TSM"]["Close"].pct_change().fillna(0).iloc[-1] if "TSM" in dati else 0
-        asml_pct = dati["ASML"]["Close"].pct_change().fillna(0).iloc[-1] if "ASML" in dati else 0
-        trend_global = (nvda_pct + tsm_pct + asml_pct) / 3
-    except Exception:
-        trend_global = 0.0
-
-    # --- RIGA TITOLO: CONFRONTO DIRETTO IN SINTESI ---
-    st.subheader("⚔️ Focus Italia: Semiconduttori vs Difesa")
-    row_col1, row_col2 = st.columns(2)
-    
-    with row_col1:
-        if "STM.MI" in dati:
-            stm_close = float(dati["STM.MI"]["Close"].iloc[-1])
-            stm_var = float(dati["STM.MI"]["Close"].pct_change().fillna(0).iloc[-1] * 100)
-            stm_rsi = float(dati["STM.MI"]["RSI_14"].fillna(50).iloc[-1])
-            stm_rec, stm_mot = elabora_rating_geopolitico("STM.MI", stm_rsi, trend_global, dati)
+            dati_output["titoli"][ticker] = {
+                "nome": nome,
+                "prezzo": round(prezzo_attuale, 2) if ticker != "BTC-USD" else round(prezzo_attuale, 0),
+                "variazione": round(variazione_pct, 2),
+                "sma20": round(float(sma20), 2),
+                "sma50": round(float(sma50), 2),
+                "rsi": round(float(rsi14), 2),
+                "segnale": segnale,
+                "motivazione": motivazione
+            }
             
-            st.markdown(f"### 🇨🇭 STMicroelectronics (`STM.MI`)")
-            st.metric(label="Prezzo e Andamento Giornaliero", value=f"{stm_close:.2f} EUR", delta=f"{stm_var:.2f}%")
-            st.markdown(f"**Segnale Algoritmico:** `{stm_rec}`")
-            st.caption(f"ℹ️ {stm_mot}")
-            
-        if "STM.MI" not in dati:
-            st.warning("Dati STM in attesa di sblocco temporaneo.")
-        
-    with row_col2:
-        if "LDO.MI" in dati:
-            ldo_close = float(dati["LDO.MI"]["Close"].iloc[-1])
-            ldo_var = float(dati["LDO.MI"]["Close"].pct_change().fillna(0).iloc[-1] * 100)
-            ldo_rsi = float(dati["LDO.MI"]["RSI_14"].fillna(50).iloc[-1])
-            ldo_rec, ldo_mot = elabora_rating_geopolitico("LDO.MI", ldo_rsi, trend_global, dati)
-            
-            st.markdown(f"### 🇮🇹 Leonardo S.p.A. (`LDO.MI`)")
-            st.metric(label="Prezzo e Andamento Giornaliero", value=f"{ldo_close:.2f} EUR", delta=f"{ldo_var:.2f}%")
-            st.markdown(f"**Segnale Algoritmico:** `{ldo_rec}`")
-            st.caption(f"ℹ️ {ldo_mot}")
-            
-        if "LDO.MI" not in dati:
-            st.warning("Dati Leonardo S.p.A. temporaneamente non disponibili.")
+    # Salva i dati strutturati in dati.json
+    with open("dati.json", "w") as f:
+        json.dump(dati_output, f, indent=4)
+    print("Dati aggiornati con successo in dati.json")
 
-    st.markdown("---")
-
-    # --- GRAFICO DI CONFRONTO GENERALE DINAMICO (%) ---
-    st.subheader(f"📊 Confronto delle Performance Relative ({stringa_periodo_maiuscolo})")
+if __name__ == "__main__":
+    scarica_e_analizza()
