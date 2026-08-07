@@ -7,7 +7,7 @@ import requests
 
 # --- CONFIGURAZIONE ASSET ---
 TICKERS = {
-    "STM.MI": "STMicroelectronics",
+    "STM": "STMicroelectronics",
     "LDO.MI": "Leonardo S.p.A.",
     "NVDA": "NVIDIA Corp.",
     "TSM": "Taiwan Semiconductor",
@@ -32,7 +32,7 @@ def calcola_rsi(series, window=14):
 def elabora_rating_geopolitico(ticker, rsi, macro_trend):
     trend_global_chip = "positivo" if macro_trend > 0 else "debole"
     
-    if ticker == "STM.MI":
+    if ticker == "STM":
         if rsi < 35 and trend_global_chip == "positivo":
             return "🟢 COMPRA", "Le forti correzioni sul settore automotive offrono un punto d'ingresso. Il trend globale dell'AI (Nvidia/TSMC) fa da traino."
         elif rsi > 65:
@@ -60,7 +60,6 @@ def scarica_e_analizza():
     sessione = requests.Session()
     sessione.headers.update(headers)
     
-    # 1. Raccoglie i dati storici degli ultimi 6 mesi
     dfs = {}
     variazioni = []
     
@@ -78,7 +77,6 @@ def scarica_e_analizza():
                 df_pulito["Close"] = pd.Series(prezzi, index=df.index).ffill().bfill().astype(float)
                 dfs[ticker] = df_pulito
                 
-                # Calcola il trend odierno dei chip (NVDA, TSM, ASML)
                 if len(df_pulito) > 1 and ticker in ["NVDA", "TSM", "ASML"]:
                     pct = (df_pulito["Close"].iloc[-1] - df_pulito["Close"].iloc[-2]) / df_pulito["Close"].iloc[-2]
                     variazioni.append(pct)
@@ -87,8 +85,7 @@ def scarica_e_analizza():
 
     trend_global = sum(variazioni) / len(variazioni) if variazioni else 0.0
 
-    # 2. Calcola indicatori e genera i report geopolitici
-    for ticker in ["STM.MI", "LDO.MI"]:
+    for ticker in ["STM", "LDO.MI"]:
         if ticker in dfs:
             df = dfs[ticker]
             close_prices = df["Close"]
@@ -107,7 +104,6 @@ def scarica_e_analizza():
                 "motivazione": motivazione
             }
             
-    # 3. Salva l'analisi in analisi.json
     with open("analisi.json", "w") as f:
         json.dump(analisi_output, f, indent=4)
     print("Analisi geopolitica salvata con successo in analisi.json!")
