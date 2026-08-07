@@ -87,8 +87,11 @@ st_autorefresh(interval=60000, key="datarefresh")
 dfs, trend_global = scarica_dati_storici()
 
 tabella_dati = []
+
+# Configura il calcolo sull'orario italiano
+fuso_orario_italia = zoneinfo.ZoneInfo("Europe/Rome")
 output_json = {
-    "ultimo_aggiornamento": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+    "ultimo_aggiornamento": datetime.now(fuso_orario_italia).strftime("%d/%m/%Y %H:%M:%S"),
     "titoli": {}
 }
 
