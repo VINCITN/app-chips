@@ -77,7 +77,7 @@ def elabora_rating_geopolitico(ticker, rsi, macro_trend, dati_globali):
         if rsi < 35 and trend_global_chip == "positivo":
             return "🟢 COMPRA", "Le forti correzioni sul settore automotive offrono un punto d'ingresso. Il trend globale dell'AI (Nvidia/TSMC) fa da traino, mitigando i colli di bottiglia normativi dell'Unione Europea."
         elif rsi > 65:
-            return "🔴 VENDI", "Titolo in ipercomprato tecnico. Le recenti restrizioni USA sull'export di tecnologie avanzate verso l'Asia e l'aumento dei costi dei materiali pesano sui margini industriali UE."
+            return "🔴 VENDI", "Titolo in ipercomprato tecnico. Le recenti restrizioni USA sull'export di tecnologie avanzate verso l'Asia e l'aumento dei costi dei materiais pesano sui margini industriali UE."
         else:
             return "🟡 TIENI", "Fase di consolidamento. Equilibrio instabile tra i sussidi dell'EU Chips Act e il rallentamento della supply chain globale dei semiconduttori tradizionali."
             
@@ -101,27 +101,30 @@ TICKERS = {
     "BTC-USD": "Bitcoin",
 }
 
-# --- NUOVA FUNZIONE SICURA TRAMITE YFINANCE ---
+# --- FUNZIONE DI SCARICAMENTO DATI OTTIMIZZATA ---
 @st.cache_data(ttl=120)
 def scarica_dati(tickers_dict, range_periodo):
     dati_finali = {}
     for ticker in tickers_dict.keys():
         try:
-            # yfinance effettua il download aggirando i blocchi IP standard delle macchine cloud
+            # Scarica i dati storici tramite yfinance
             ticker_data = yf.Ticker(ticker)
             df = ticker_data.history(period=range_periodo, interval="1d")
             
             if not df.empty:
-                df_pulito = pd.DataFrame(index=df.index.date)
+                # CORREZIONE INDICE: Rimuoviamo il fuso orario nativo per evitare crash in Streamlit
+                df.index = df.index.tz_localize(None)
+                
+                df_pulito = pd.DataFrame(index=df.index)
                 df_pulito["Close"] = df["Close"].values.astype(float)
                 
-                # Calcoli algoritmici interni
+                # Calcoli analitici
                 df_pulito["SMA_20"] = calcola_sma(df_pulito["Close"], 20)
                 df_pulito["SMA_50"] = calcola_sma(df_pulito["Close"], 50)
                 df_pulito["RSI_14"] = calcola_rsi(df_pulito["Close"], 14)
                 
                 dati_finali[ticker] = df_pulito
-        except Exception:
+        except Exception as e:
             pass
     return dati_finali
 
@@ -176,7 +179,8 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
     df_confronto = pd.DataFrame()
     for t_key in ["STM.MI", "LDO.MI", "NVDA", "TSM", "ASML"]:
         if t_key in dati and not dati[t_key].empty:
-            prezzo_iniziale = dati[t_key]["Close"].iloc[0]
+            # CORREZIONE FILTRO %: Estraiamo il primo valore reale usando .iloc[0]
+            prezzo_iniziale = float(dati[t_key]["Close"].iloc[0])
             df_confronto[TICKERS[t_key]] = ((dati[t_key]["Close"] - prezzo_iniziale) / prezzo_iniziale) * 100
             
     if not df_confronto.empty:
@@ -211,4 +215,4 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
     with st.expander("📄 Registro Storico Dati (Ultimi 10 giorni)"):
         st.dataframe(df_asset[["Close", "SMA_20", "SMA_50", "RSI_14"]].tail(10))
 else:
-    st.error("Nessun dato caricato. Attendi 10 secondi e premi su 'BYPASS CACHE' nella barra laterale per ristabilire la connessione con Yahoo Finance.")
+    st.error("Servizi temporaneamente lenti nel recupero dati. Modifica il periodo o forza l'aggiornamento dalla barra laterale.")
