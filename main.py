@@ -101,23 +101,29 @@ TICKERS = {
     "BTC-USD": "Bitcoin",
 }
 
-# --- FUNZIONE DI SCARICAMENTO DATI OTTIMIZZATA ---
+# --- FUNZIONE DI SCARICAMENTO DATI CON AGGIRAMENTO BLOCCHI ---
 @st.cache_data(ttl=120)
 def scarica_dati(tickers_dict, range_periodo):
     dati_finali = {}
+    
+    # Configurazione di sessione con intestazioni browser reali contro i blocchi IP cloud
+    sessione = yf.utils.get_default_session()
+    sessione.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    })
+    
     for ticker in tickers_dict.keys():
         try:
-            ticker_data = yf.Ticker(ticker)
+            ticker_data = yf.Ticker(ticker, session=sessione)
             df = ticker_data.history(period=range_periodo, interval="1d")
             
             if not df.empty:
                 df.index = df.index.tz_localize(None)
                 df_pulito = pd.DataFrame(index=df.index)
                 
-                # Riempimento dei buchi di dati (giorni festivi o orari asincroni)
+                # Riempimento preventivo per mercati chiusi o fusi orari differenti
                 df_pulito["Close"] = pd.Series(df["Close"].values, index=df.index).ffill().bfill().astype(float)
                 
-                # Calcoli analitici protetti da valori nulli
                 df_pulito["SMA_20"] = calcola_sma(df_pulito["Close"], 20).ffill().bfill()
                 df_pulito["SMA_50"] = calcola_sma(df_pulito["Close"], 50).ffill().bfill()
                 df_pulito["RSI_14"] = calcola_rsi(df_pulito["Close"], 14).ffill().bfill()
@@ -133,41 +139,46 @@ dati = scarica_dati(TICKERS, periodo_scelto)
 stringa_periodo_maiuscolo = "1 MESE" if periodo_scelto == "1mo" else "3 MESI" if periodo_scelto == "3mo" else "6 MESI"
 st.title(f"💡 Geopolitical & Chip Monitor ({stringa_periodo_maiuscolo})")
 
-if dati and "STM.MI" in dati and "LDO.MI" in dati:
+# Rilassiamo il vincolo di controllo: basta che STM o Leonardo siano pronti per avviare lo schermo
+if dati and ("STM.MI" in dati or "LDO.MI" in dati):
     try:
-        trend_global = (dati["NVDA"]["Close"].pct_change().iloc[-1] + 
-                        dati["TSM"]["Close"].pct_change().iloc[-1] + 
-                        dati["ASML"]["Close"].pct_change().iloc[-1]) / 3
+        trend_global = (dati.get("NVDA", {}).get("Close", pd.Series([0])).pct_change().fillna(0).iloc[-1] + 
+                        dati.get("TSM", {}).get("Close", pd.Series([0])).pct_change().fillna(0).iloc[-1] + 
+                        dati.get("ASML", {}).get("Close", pd.Series([0])).pct_change().fillna(0).iloc[-1]) / 3
     except Exception:
         trend_global = 0.0
-
-    # Dati STM
-    stm_close = float(dati["STM.MI"]["Close"].iloc[-1])
-    stm_var = float(dati["STM.MI"]["Close"].pct_change().iloc[-1] * 100)
-    stm_rsi = float(dati["STM.MI"]["RSI_14"].fillna(50).iloc[-1])
-    stm_rec, stm_mot = elabora_rating_geopolitico("STM.MI", stm_rsi, trend_global, dati)
-
-    # Dati Leonardo
-    ldo_close = float(dati["LDO.MI"]["Close"].iloc[-1])
-    ldo_var = float(dati["LDO.MI"]["Close"].pct_change().iloc[-1] * 100)
-    ldo_rsi = float(dati["LDO.MI"]["RSI_14"].fillna(50).iloc[-1])
-    ldo_rec, ldo_mot = elabora_rating_geopolitico("LDO.MI", ldo_rsi, trend_global, dati)
 
     # --- RIGA TITOLO: CONFRONTO DIRETTO IN SINTESI ---
     st.subheader("⚔️ Focus Italia: Semiconduttori vs Difesa")
     row_col1, row_col2 = st.columns(2)
     
     with row_col1:
-        st.markdown(f"### 🇨🇭 STMicroelectronics (`STM.MI`)")
-        st.metric(label="Prezzo e Andamento Giornaliero", value=f"{stm_close:.2f} EUR", delta=f"{stm_var:.2f}%")
-        st.markdown(f"**Segnale Algoritmico:** `{stm_rec}`")
-        st.caption(f"ℹ️ {stm_mot}")
+        if "STM.MI" in dati:
+            stm_close = float(dati["STM.MI"]["Close"].iloc[-1])
+            stm_var = float(dati["STM.MI"]["Close"].pct_change().fillna(0).iloc[-1] * 100)
+            stm_rsi = float(dati["STM.MI"]["RSI_14"].fillna(50).iloc[-1])
+            stm_rec, stm_mot = elabora_rating_geopolitico("STM.MI", stm_rsi, trend_global, dati)
+            
+            st.markdown(f"### 🇨🇭 STMicroelectronics (`STM.MI`)")
+            st.metric(label="Prezzo e Andamento Giornaliero", value=f"{stm_close:.2f} EUR", delta=f"{stm_var:.2f}%")
+            st.markdown(f"**Segnale Algoritmico:** `{stm_rec}`")
+            st.caption(f"ℹ️ {stm_mot}")
+        else:
+            st.warning("Dati STM temporaneamente non disponibili.")
         
     with row_col2:
-        st.markdown(f"### 🇮🇹 Leonardo S.p.A. (`LDO.MI`)")
-        st.metric(label="Prezzo e Andamento Giornaliero", value=f"{ldo_close:.2f} EUR", delta=f"{ldo_var:.2f}%")
-        st.markdown(f"**Segnale Algoritmico:** `{ldo_rec}`")
-        st.caption(f"ℹ️ {ldo_mot}")
+        if "LDO.MI" in dati:
+            ldo_close = float(dati["LDO.MI"]["Close"].iloc[-1])
+            ldo_var = float(dati["LDO.MI"]["Close"].pct_change().fillna(0).iloc[-1] * 100)
+            ldo_rsi = float(dati["LDO.MI"]["RSI_14"].fillna(50).iloc[-1])
+            ldo_rec, ldo_mot = elabora_rating_geopolitico("LDO.MI", ldo_rsi, trend_global, dati)
+            
+            st.markdown(f"### 🇮🇹 Leonardo S.p.A. (`LDO.MI`)")
+            st.metric(label="Prezzo e Andamento Giornaliero", value=f"{ldo_close:.2f} EUR", delta=f"{ldo_var:.2f}%")
+            st.markdown(f"**Segnale Algoritmico:** `{ldo_rec}`")
+            st.caption(f"ℹ️ {ldo_mot}")
+        else:
+            st.warning("Dati Leonardo S.p.A. temporaneamente non disponibili.")
 
     st.markdown("---")
 
@@ -178,15 +189,16 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
     df_confronto = pd.DataFrame()
     for t_key in ["STM.MI", "LDO.MI", "NVDA", "TSM", "ASML"]:
         if t_key in dati and not dati[t_key].empty:
-            # CORREZIONE SICURA INDICE: estrazione sicura tramite .iloc[0] protetta da buoti di dati
-            prezzo_iniziale = float(dati[t_key]["Close"].dropna().iloc[0])
-            if prezzo_iniziale > 0:
-                df_confronto[TICKERS[t_key]] = ((dati[t_key]["Close"] - prezzo_iniziale) / prezzo_iniziale) * 100
+            serie_valida = dati[t_key]["Close"].dropna()
+            if not serie_valida.empty:
+                prezzo_iniziale = float(serie_valida.iloc[0])
+                if prezzo_iniziale > 0:
+                    df_confronto[TICKERS[t_key]] = ((dati[t_key]["Close"] - prezzo_iniziale) / prezzo_iniziale) * 100
             
     if not df_confronto.empty:
         st.line_chart(df_confronto)
     else:
-        st.warning("Dati storici non pronti. Aggiorna la pagina.")
+        st.warning("Dati storici insufficienti per generare il grafico comparativo.")
 
     st.markdown("---")
     
@@ -194,25 +206,12 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
     st.subheader("📈 Analisi Tecnica Dettagliata (Titolo Singolo)")
     asset_scelto = st.selectbox(
         "Scegli quale asset visualizzare sul grafico con Medie Mobili:", 
-        options=list(TICKERS.keys()), 
+        options=list(dati.keys()), 
         format_func=lambda x: f"{TICKERS[x]} ({x})"
     )
     
-    df_asset = dati[asset_scelto]
-    
-    m1, m2, m3 = st.columns(3)
-    with m1:
-        st.metric(label="Prezzo Attuale", value=f"{float(df_asset['Close'].iloc[-1]):.2f}", delta=f"{float(df_asset['Close'].pct_change().fillna(0).iloc[-1]*100):.2f}%")
-    with m2:
-        st.metric(label="RSI (14d)", value=f"{float(df_asset['RSI_14'].fillna(50).iloc[-1]):.2f}")
-    with m3:
-        current_rsi = float(df_asset['RSI_14'].fillna(50).iloc[-1])
-        condizione = "🚨 Ipercomprato" if current_rsi > 70 else "🛒 Ipervenduto" if current_rsi < 30 else "⚖️ Neutrale"
-        st.metric(label="Condizione Tecnica", value=condizione)
-
-    st.line_chart(df_asset[["Close", "SMA_20", "SMA_50"]])
-    
-    with st.expander("📄 Registro Storico Dati (Ultimi 10 giorni)"):
-        st.dataframe(df_asset[["Close", "SMA_20", "SMA_50", "RSI_14"]].tail(10))
-else:
-    st.error("I server di Yahoo stanno limitando la connessione della piattaforma cloud. Attendi 10 secondi e premi il pulsante 'BYPASS CACHE' nella barra laterale.")
+    if asset_scelto in dati:
+        df_asset = dati[asset_scelto]
+        
+        m1, m2, m3 = st.columns(3)
+        with m1:
