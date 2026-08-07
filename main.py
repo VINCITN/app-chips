@@ -37,6 +37,16 @@ with st.sidebar:
         st.success("🟢 Server pronti per una richiesta diretta!")
 
     st.markdown("---")
+    
+    # --- NUOVO CONTROLLO: SELETTORE SCALA TEMPORALE ---
+    st.header("📅 Orizzonte Temporale")
+    periodo_scelto = st.selectbox(
+        "Seleziona il periodo di analisi:",
+        options=["1mo", "3mo", "6mo"],
+        format_func=lambda x: "1 Mese" if x == "1mo" else "3 Mesi" if x == "3mo" else "6 Mesi"
+    )
+    
+    st.markdown("---")
     if st.button("⚡ BYPASS CACHE: Tempo Reale Ora"):
         st.toast("Richiesta immediata dati freschi tramite tunnel protetto.")
         st.cache_data.clear() 
@@ -92,15 +102,17 @@ TICKERS = {
     "BTC-USD": "Bitcoin",
 }
 
+# La cache ora memorizza i dati anche in base alla stringa del periodo (range) per evitare conflitti
 @st.cache_data(ttl=120)
-def scarica_dati(tickers_dict):
+def scarica_dati(tickers_dict, range_periodo):
     dati_finali = {}
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     for ticker in tickers_dict.keys():
         try:
-            url = f"https://yahoo.com{ticker}?range=6mo&interval=1d"
+            # RANGE DINAMICO inserito nell'URL di richiesta a Yahoo API
+            url = f"https://yahoo.com{ticker}?range={range_periodo}&interval=1d"
             risposta = requests.get(url, headers=headers, timeout=10)
             if risposta.status_code == 200:
                 json_data = risposta.json()
@@ -123,13 +135,14 @@ def scarica_dati(tickers_dict):
             pass
     return dati_finali
 
-dati = scarica_dati(TICKERS)
+# Scarichiamo i dati passando l'intervallo scelto dall'utente
+dati = scarica_dati(TICKERS, periodo_scelto)
 
 # --- INTERFACCIA PRINCIPALE ---
-st.title("💡 Geopolitical & Chip Monitor")
+stringa_periodo_maiuscolo = "1 MESE" if periodo_scelto == "1mo" else "3 MESI" if periodo_scelto == "3mo" else "6 MESI"
+st.title(f"💡 Geopolitical & Chip Monitor ({stringa_periodo_maiuscolo})")
 
 if dati and "STM.MI" in dati and "LDO.MI" in dati:
-    # Calcolo trend aggregato dei colossi globali (Nvidia + TSMC + ASML) per l'algoritmo
     try:
         trend_global = (dati["NVDA"]["Close"].pct_change().iloc[-1] + 
                         dati["TSM"]["Close"].pct_change().iloc[-1] + 
@@ -149,7 +162,7 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
     ldo_rsi = float(dati["LDO.MI"]["RSI_14"].iloc[-1])
     ldo_rec, ldo_mot = elabora_rating_geopolitico("LDO.MI", ldo_rsi, trend_global, dati)
 
-    # --- RIGA TITOLO: CONFRONTO DIRETTO IN SINTESI (OTTIMIZZATA IPHONE) ---
+    # --- RIGA TITOLO: CONFRONTO DIRETTO IN SINTESI ---
     st.subheader("⚔️ Focus Italia: Semiconduttori vs Difesa")
     row_col1, row_col2 = st.columns(2)
     
@@ -167,15 +180,13 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
 
     st.markdown("---")
 
-    # --- NUOVA SEZIONE: GRAFICO DI CONFRONTO GENERALE (NORMALIZZATO %) ---
-    st.subheader("📊 Confronto delle Performance a 6 Mesi (%)")
-    st.write("I prezzi sono normalizzati in percentuale per confrontare l'andamento di titoli con valute e valori differenti (Base iniziale = 0%).")
+    # --- GRAFICO DI CONFRONTO GENERALE DINAMICO (%) ---
+    st.subheader(f"📊 Confronto delle Performance Relative ({stringa_periodo_maiuscolo})")
+    st.write("I prezzi sono normalizzati (Base iniziale = 0%) a partire dal primo giorno dell'intervallo selezionato.")
     
     df_confronto = pd.DataFrame()
-    # Consideriamo solo i titoli azionari richiesti (escludendo Bitcoin dal benchmark puro dei chip)
     for t_key in ["STM.MI", "LDO.MI", "NVDA", "TSM", "ASML"]:
-        if t_key in dati:
-            # Calcolo variazione percentuale cumulativa dall'inizio dello storico dei 6 mesi
+        if t_key in dati and not dati[t_key].empty:
             prezzo_iniziale = dati[t_key]["Close"].iloc[0]
             df_confronto[TICKERS[t_key]] = ((dati[t_key]["Close"] - prezzo_iniziale) / prezzo_iniziale) * 100
             
@@ -183,7 +194,7 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
 
     st.markdown("---")
     
-    # --- SELEZIONE PER IL GRAFICO SOTTOSTANTE (PRESERVATO ED ASSET SINGOLO) ---
+    # --- SELEZIONE PER IL GRAFICO SOTTOSTANTE ---
     st.subheader("📈 Analisi Tecnica Dettagliata (Titolo Singolo)")
     asset_scelto = st.selectbox(
         "Scegli quale asset visualizzare sul grafico con Medie Mobili:", 
@@ -206,6 +217,3 @@ if dati and "STM.MI" in dati and "LDO.MI" in dati:
     st.line_chart(df_asset[["Close", "SMA_20", "SMA_50"]])
     
     with st.expander("📄 Registro Storico Dati (Ultimi 10 giorni)"):
-        st.dataframe(df_asset[["Close", "SMA_20", "SMA_50", "RSI_14"]].tail(10))
-else:
-    st.error("Servizi temporaneamente lenti nel recupero dati da Yahoo Finance. Forza l'aggiornamento dalla barra laterale.")
