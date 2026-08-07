@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import yfinance as yf
+import requests
 
 st.set_page_config(page_title="Crypto & Chip Dashboard", layout="wide")
 
@@ -101,28 +102,33 @@ TICKERS = {
     "BTC-USD": "Bitcoin",
 }
 
-# --- FUNZIONE DI SCARICAMENTO DATI CON AGGIRAMENTO BLOCCHI ---
+# --- FUNZIONE DI SCARICAMENTO DATI CORRETTA ---
 @st.cache_data(ttl=120)
 def scarica_dati(tickers_dict, range_periodo):
     dati_finali = {}
     
-    # Configurazione di sessione con intestazioni browser reali contro i blocchi IP cloud
-    sessione = yf.utils.get_default_session()
+    # Creiamo una sessione standard pulita e compatibile
+    sessione = requests.Session()
     sessione.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     })
     
     for ticker in tickers_dict.keys():
         try:
-            ticker_data = yf.Ticker(ticker, session=sessione)
-            df = ticker_data.history(period=range_periodo, interval="1d")
+            # Passiamo la sessione di richiesta corretta direttamente dentro yfinance
+            df = yf.download(ticker, period=range_periodo, interval="1d", session=sessione, progress=False)
             
             if not df.empty:
                 df.index = df.index.tz_localize(None)
                 df_pulito = pd.DataFrame(index=df.index)
                 
-                # Riempimento preventivo per mercati chiusi o fusi orari differenti
-                df_pulito["Close"] = pd.Series(df["Close"].values, index=df.index).ffill().bfill().astype(float)
+                # Appiattiamo le colonne se yfinance restituisce un MultiIndex
+                if isinstance(df.columns, pd.MultiIndex):
+                    prezzi_chiusura = df["Close"][ticker].values
+                else:
+                    prezzi_chiusura = df["Close"].values
+                
+                df_pulito["Close"] = pd.Series(prezzi_chiusura, index=df.index).ffill().bfill().astype(float)
                 
                 df_pulito["SMA_20"] = calcola_sma(df_pulito["Close"], 20).ffill().bfill()
                 df_pulito["SMA_50"] = calcola_sma(df_pulito["Close"], 50).ffill().bfill()
@@ -139,12 +145,12 @@ dati = scarica_dati(TICKERS, periodo_scelto)
 stringa_periodo_maiuscolo = "1 MESE" if periodo_scelto == "1mo" else "3 MESI" if periodo_scelto == "3mo" else "6 MESI"
 st.title(f"💡 Geopolitical & Chip Monitor ({stringa_periodo_maiuscolo})")
 
-# Rilassiamo il vincolo di controllo: basta che STM o Leonardo siano pronti per avviare lo schermo
 if dati and ("STM.MI" in dati or "LDO.MI" in dati):
     try:
-        trend_global = (dati.get("NVDA", {}).get("Close", pd.Series([0])).pct_change().fillna(0).iloc[-1] + 
-                        dati.get("TSM", {}).get("Close", pd.Series([0])).pct_change().fillna(0).iloc[-1] + 
-                        dati.get("ASML", {}).get("Close", pd.Series([0])).pct_change().fillna(0).iloc[-1]) / 3
+        nvda_pct = dati["NVDA"]["Close"].pct_change().fillna(0).iloc[-1] if "NVDA" in dati else 0
+        tsm_pct = dati["TSM"]["Close"].pct_change().fillna(0).iloc[-1] if "TSM" in dati else 0
+        asml_pct = dati["ASML"]["Close"].pct_change().fillna(0).iloc[-1] if "ASML" in dati else 0
+        trend_global = (nvda_pct + tsm_pct + asml_pct) / 3
     except Exception:
         trend_global = 0.0
 
@@ -202,7 +208,7 @@ if dati and ("STM.MI" in dati or "LDO.MI" in dati):
 
     st.markdown("---")
     
-       # --- SELEZIONE PER IL GRAFICO SOTTOSTANTE ---
+    # --- SELEZIONE PER IL GRAFICO SOTTOSTANTE ---
     st.subheader("📈 Analisi Tecnica Dettagliata (Titolo Singolo)")
     asset_scelto = st.selectbox(
         "Scegli quale asset visualizzare sul grafico con Medie Mobili:", 
@@ -215,17 +221,3 @@ if dati and ("STM.MI" in dati or "LDO.MI" in dati):
         
         m1, m2, m3 = st.columns(3)
         with m1:
-            st.metric(label="Prezzo Attuale", value=f"{float(df_asset['Close'].iloc[-1]):.2f}", delta=f"{float(df_asset['Close'].pct_change().fillna(0).iloc[-1]*100):.2f}%")
-        with m2:
-            st.metric(label="RSI (14d)", value=f"{float(df_asset['RSI_14'].fillna(50).iloc[-1]):.2f}")
-        with m3:
-            current_rsi = float(df_asset['RSI_14'].fillna(50).iloc[-1])
-            condizione = "🚨 Ipercomprato" if current_rsi > 70 else "🛒 Ipervenduto" if current_rsi < 30 else "⚖️ Neutrale"
-            st.metric(label="Condizione Tecnica", value=condizione)
-
-        st.line_chart(df_asset[["Close", "SMA_20", "SMA_50"]])
-        
-        with st.expander("📄 Registro Storico Dati (Ultimi 10 giorni)"):
-            st.dataframe(df_asset[["Close", "SMA_20", "SMA_50", "RSI_14"]].tail(10))
-else:
-    st.error("I server di Yahoo stanno limitando la connessione della piattaforma cloud. Attendi 10 secondi e premi il pulsante 'BYPASS CACHE' nella barra laterale.")
