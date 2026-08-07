@@ -47,7 +47,7 @@
 
     <script>
         const TICKERS = {
-            "STM.MI": "STMicroelectronics",
+            "STM": "STMicroelectronics",
             "LDO.MI": "Leonardo S.p.A.",
             "NVDA": "NVIDIA Corp.",
             "TSM": "Taiwan Semiconductor",
@@ -58,7 +58,6 @@
         let secondiMancanti = 60;
         let datiAnalisiPython = {};
 
-        // Carica i dati algoritmici lenti generati da Python
         function caricaAnalisiPython() {
             return fetch('analisi.json?t=' + new Date().getTime())
                 .then(res => res.json())
@@ -66,20 +65,25 @@
                     datiAnalisiPython = data.analisi || {};
                     document.getElementById('algo-time').innerText = "Ultimo report macro Python: " + data.ultimo_aggiornamento_algoritmo;
                 })
-                .catch(() => console.log("File analisi.json non ancora generato da Python. Salto la build."));
+                .catch(() => console.log("File analisi.json non trovato. Proseguo solo con i prezzi live."));
         }
 
         function recuperaDatiTempoReale() {
             const grid = document.getElementById('dashboard-grid');
             const listaTickers = Object.keys(TICKERS).join(',');
-            const url = `https://yahoo.com{listaTickers}`;
-            const proxyUrl = `https://corsproxy.io{encodeURIComponent(url)}`;
+            const targetUrl = `https://yahoo.com{listaTickers}`;
+            // Cambiato proxy con allorigins per massima stabilità
+            const proxyUrl = `https://allorigins.win{encodeURIComponent(targetUrl)}`;
 
             fetch(proxyUrl)
-                .then(res => res.json())
+                .then(res => {
+                    if (res.ok) return res.json();
+                    throw new Error('Network response was not ok.');
+                })
                 .then(data => {
+                    const jsonData = JSON.parse(data.contents);
+                    const quotes = jsonData.quoteResponse.result;
                     grid.innerHTML = ''; 
-                    const quotes = data.quoteResponse.result;
                     
                     quotes.forEach(quote => {
                         const ticker = quote.symbol;
@@ -90,9 +94,8 @@
                         const isPositive = variazione >= 0;
                         const changeClass = isPositive ? 'positive' : 'negative';
                         const changeSign = isPositive ? '+' : '';
-                        const valuta = ticker.endsWith('.MI') || ticker === 'ASML' ? '€' : '$';
+                        const valuta = ticker === 'LDO.MI' || ticker === 'ASML' ? '€' : '$';
 
-                        // Verifica se Python ha calcolato i dati algoritmici per questo ticker
                         const haAnalisi = datiAnalisiPython[ticker];
                         let bloccoAlgoritmico = '';
 
@@ -140,11 +143,11 @@
                     secondiMancanti = 60;
                 })
                 .catch(err => {
-                    console.error("Errore fetch live:", err);
+                    console.error("Errore feed live:", err);
+                    document.getElementById('update-time').innerText = "Errore feed. Riprovo al prossimo ciclo...";
                 });
         }
 
-        // Timer visivo dei 60 secondi
         setInterval(() => {
             secondiMancanti--;
             const percentuale = (secondiMancanti / 60) * 100;
@@ -155,7 +158,6 @@
             }
         }, 1000);
 
-        // Avvio sequenziale: carica prima i dati statici di Python, poi fa partire le quotazioni al minuto
         caricaAnalisiPython().then(() => {
             recuperaDatiTempoReale();
         });
