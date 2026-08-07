@@ -2,7 +2,7 @@
 title: Real-Time Chip Monitor
 emoji: 📟
 colorFrom: blue
-colorTo: slate
+colorTo: gray
 sdk: static
 app_file: index.html
 pinned: false
