@@ -150,6 +150,6 @@ with open("analisi.json", "w") as f:
     json.dump(output_json, f, indent=4)
 
 # Mostra i risultati visivi
-st.write(f"⏱️ **Ultimo controllo effettuato il:** {output_json['ultimo_aggiornamento']}")
+st.write(f"⏱️ **Ultimo controllo effettuato il (Ora Italiana):** {output_json['ultimo_aggiornamento']}")
 df_visivo = pd.DataFrame(tabella_dati)
 st.dataframe(df_visivo, use_container_width=True, hide_index=True)
