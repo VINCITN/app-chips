@@ -4,6 +4,7 @@ import yfinance as yf
 import requests
 import json
 from datetime import datetime
+import zoneinfo # <--- Aggiungi questa libreria nativa
 
 # Configurazione della Dashboard visiva
 st.set_page_config(page_title="Monitor Chip 1-Minuto", layout="wide")
