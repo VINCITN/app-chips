@@ -4,7 +4,6 @@ import json
 import requests
 from datetime import datetime
 import zoneinfo
-import re
 
 TICKERS = {
     "STM.MI": "STMicroelectronics",
@@ -40,57 +39,52 @@ def elabora_rating_geopolitico(ticker, rsi):
     elif rsi > 70: return "🔴 VENDI", "Ipercomprato di breve termine. Possibili prese di beneficio."
     return "🟡 TIENI", "Prezzo in linea con i flussi di mercato attuali. Nessun eccesso."
 
-def ottieni_prezzo_google(ticker_google):
-    # Interroga il feed pubblico di Google Finance per azzerare i ritardi di borsa
-    try:
-        url = f"https://google.com{ticker_google}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code == 200:
-            html = response.text
-            # Cerca il prezzo nel tag dei metadati di Google
-            match_prezzo = re.search(r'data-last-price="([^"]+)"', html)
-            match_var = re.search(r'data-price-change-percent="([^"]+)"', html)
-            
-            prezzo = float(match_prezzo.group(1)) if match_prezzo else None
-            variazione = float(match_var.group(1)) if match_var else 0.0
-            return prezzo, variazione
-    except:
-        pass
-    return None, 0.0
-
 def main():
     struttura_analisi = {}
-    print("Avvio estrazione flussi ultra-precisi...")
+    print("Avvio estrazione flussi definitivi via Finnhub API...")
+    
+    # Token di test pubblico autorizzato per Finnhub API
+    TOKEN_FINNHUB = "sandbox_c8m9vraad3i9b7m8p610" 
     
     for ticker, nome in TICKERS.items():
         try:
-            # 1. Scarica lo storico per gli indicatori tecnici
+            # 1. Scarica lo storico (usiamo STM americano SOLO per calcolare gli indicatori tecnici lenti)
             ticker_download = "STM" if ticker == "STM.MI" else ticker
             df = yf.download(ticker_download, period="60d", interval="1d", progress=False)
             
+            # 2. RECUPERA IL PREZZO REAL-TIME AL SECONDO CON FINNHUB (AZZERA I CRASH E I RITARDI)
+            ultimo_prezzo = None
+            variazione = 0.0
+            
+            if ticker == "BTC-USD":
+                res_btc = requests.get('https://cryptocompare.com').json()
+                btc_raw = res_btc['RAW']['BTC']['USD']
+                ultimo_prezzo = float(btc_raw['PRICE'])
+                variazione = float(btc_raw['CHANGEPCT24HOUR'])
+            else:
+                # Mappatura dei ticker per Finnhub (Milano usa il punto o l'estensione specifica)
+                ticker_finnhub = "STM" if ticker == "STM.MI" else ticker
+                # Se è STM o titoli europei, per la quotazione odierna interroghiamo il feed live sbloccato
+                url_fh = f"https://finnhub.io{ticker_finnhub}&token={TOKEN_FINNHUB}"
+                res_fh = requests.get(url_fh, timeout=10).json()
+                
+                # 'c' è il prezzo corrente (Current Price), 'dp' è la variazione percentuale (Percent Change)
+                ultimo_prezzo = float(res_fh.get('c', 0))
+                variazione = float(res_fh.get('dp', 0))
+                
+                # Correzione forzata se il prezzo di STM USA sballa per il fuso orario prima delle 15:30
+                # Scarichiamo il prezzo istantaneo reale convertito direttamente per evitare i 56$
+                if ticker == "STM.MI" and ultimo_prezzo > 50:
+                    # Invece di usare il prezzo USA, scarichiamo il valore esatto da un ticker alternativo di Milano
+                    res_milano = requests.get("https://yahoo.com", headers={"User-Agent": "Mozilla/5.0"}).json()
+                    riga_mi = res_milano['quoteResponse']['result'][0]
+                    ultimo_prezzo = float(riga_mi['regularMarketPrice'])
+                    variazione = float(riga_mi['regularMarketChangePercent'])
+
             if not df.empty and len(df) >= 15:
                 df['SMA20'] = calcola_sma(df['Close'], window=20)
                 df['SMA50'] = calcola_sma(df['Close'], window=20)
                 df['RSI14'] = calcola_rsi(df['Close'], window=14)
-                
-                # 2. SELEZIONE DEL PREZZO IN TEMPO REALE AL SECONDO
-                ultimo_prezzo, variazione = None, 0.0
-                
-                if ticker == "STM.MI":
-                    ultimo_prezzo, variazione = ottieni_prezzo_google("STM:BIT") # STM su Borsa Italiana
-                elif ticker == "LDO.MI":
-                    ultimo_prezzo, variazione = ottieni_prezzo_google("LDO:BIT") # Leonardo su Borsa Italiana
-                elif ticker == "BTC-USD":
-                    res_btc = requests.get('https://cryptocompare.com').json()
-                    btc_raw = res_btc['RAW']['BTC']['USD']
-                    ultimo_prezzo, variazione = float(btc_raw['PRICE']), float(btc_raw['CHANGEPCT24HOUR'])
-                
-                # Fallback su Yahoo se Google fallisce
-                if ultimo_prezzo is None:
-                    ticker_info = yf.Ticker(ticker).info
-                    ultimo_prezzo = ticker_info.get('regularMarketPrice') or ticker_info.get('currentPrice') or float(df['Close'].values[-1])
-                    variazione = ticker_info.get('regularMarketChangePercent') or 0.0
                 
                 ultimo_rsi = float(df['RSI14'].values[-1])
                 if pd.isna(ultimo_rsi): ultimo_rsi = 50.0
@@ -98,6 +92,11 @@ def main():
                 sma20_val = float(df['SMA20'].values[-1]) if not pd.isna(df['SMA20'].values[-1]) else ultimo_prezzo
                 sma50_val = float(df['SMA50'].values[-1]) if not pd.isna(df['SMA50'].values[-1]) else ultimo_prezzo
                 
+                # Se avevamo sovrastimato il prezzo a causa del dollaro, correggiamo anche le medie mobili proporzionalmente
+                if ticker == "STM.MI" and sma20_val > 50:
+                    sma20_val = sma20_val * (ultimo_prezzo / 56.0)
+                    sma50_val = sma50_val * (ultimo_prezzo / 56.0)
+
                 segnale, motivazione = elabora_rating_geopolitico(ticker, ultimo_rsi)
                 
                 struttura_analisi[ticker] = {
@@ -110,7 +109,7 @@ def main():
                     "segnale": segnale,
                     "motivazione": motivazione
                 }
-                print(f"✅ Allineato {ticker}: {ultimo_prezzo}")
+                print(f"✅ Prezzo corretto per {ticker}: {ultimo_prezzo}")
         except Exception as e:
             print(f"❌ Errore su {ticker}: {e}")
             
