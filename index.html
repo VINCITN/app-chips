@@ -58,7 +58,7 @@
         let datiAnalisiPython = {};
         let secondiMancanti = 30;
 
-        // 1. CARICA I SEGNALI E LE MEDIE DALL'ANALISI DI GITHUB ACTIONS (OGNI 5 MINUTI)
+        // 1. SCARICA I SEGNALI DI ANALISI CALCOLATI DA PYTHON (OGNI 5 MINUTI)
         function caricaAnalisiPython() {
             return fetch('analisi.json?t=' + new Date().getTime())
                 .then(res => {
@@ -70,29 +70,27 @@
                     document.getElementById('algo-time').innerText = "Analisi Geopolitica aggiornata al: " + data.ultimo_aggiornamento_algoritmo;
                 })
                 .catch(() => {
-                    document.getElementById('algo-time').innerText = "Analisi Geopolitica: Caricamento segnali in corso...";
+                    document.getElementById('algo-time').innerText = "Analisi Geopolitica: Sincronizzazione in corso...";
                 });
         }
 
-        // 2. SCARICA I PREZZI REALI DIRETTAMENTE DAL BROWSER (OGNI 30 SECONDI)
+        // 2. SCARICA I PREZZI IN TEMPO REALE TRAMITE IL PROXY VELOCE DI CODETABS (OGNI 30 SECONDI)
         function recuperaPrezziVeroTempoReale() {
             const grid = document.getElementById('dashboard-grid');
             const listaTickers = Object.keys(TICKERS).join(',');
             
-            // Richiesta a Yahoo Finance avvolta nel proxy AllOrigins per sbloccare i permessi CORS
+            // Endpoint Yahoo avvolto nel proxy stabile Codetabs per evitare blocchi CORS e sovraccarichi
             const urlYahoo = `https://yahoo.com{listaTickers}`;
-            const urlProxy = `https://allorigins.win{encodeURIComponent(urlYahoo)}`;
+            const urlProxy = `https://codetabs.com{encodeURIComponent(urlYahoo)}`;
             
             fetch(urlProxy)
                 .then(res => {
                     if (!res.ok) throw new Error('Errore Proxy');
                     return res.json();
                 })
-                .then(wrapper => {
-                    const data = JSON.parse(wrapper.contents);
+                .then(data => {
                     const quotes = data.quoteResponse.result;
-                    
-                    grid.innerHTML = ''; // Pulisce la griglia grafica
+                    grid.innerHTML = ''; // Svuota lo schermo prima di ridisegnare le card
                     
                     quotes.forEach(quote => {
                         const ticker = quote.symbol;
@@ -105,7 +103,7 @@
                         const changeSign = isPositive ? '+' : '';
                         const valuta = ['LDO.MI', 'ASML', 'STM'].includes(ticker) ? '€' : '$';
 
-                        // Inietta l'analisi calcolata in background da Python
+                        // Recupera l'analisi tecnica lenta generata da Python
                         const haAnalisi = datiAnalisiPython[ticker];
                         let bloccoAlgoritmico = '';
 
@@ -150,16 +148,16 @@
 
                     const ora = new Date();
                     document.getElementById('update-time').innerText = "Quotazioni Live (Aggiornamento Browser): " + ora.toLocaleTimeString('it-IT');
-                    secondiMancanti = 30; // Ripristina il timer
+                    secondiMancanti = 30; // Ripristina il timer di 30 secondi
                 })
                 .catch(err => {
-                    console.error("Errore feed:", err);
+                    console.error("Errore feed dati:", err);
                     document.getElementById('update-time').innerText = "Errore feed dati. Riprovo automaticamente...";
-                    secondiMancanti = 5; // Riprova subito tra 5 secondi
+                    secondiMancanti = 5; // In caso di errore, riprova rapidamente dopo 5 secondi
                 });
         }
 
-        // 3. LOGICA DI SCORRIMENTO DELLA BARRA DEL TIMER (1 VOLTA AL SECONDO)
+        // 3. LOGICA DI SCORRIMENTO DELLA PROGRESS BAR DEL TIMER
         setInterval(() => {
             secondiMancanti--;
             const progBar = document.getElementById('progress-bar');
@@ -173,12 +171,12 @@
             }
         }, 1000);
 
-        // 4. ESECUZIONE AL CARICAMENTO DELLA PAGINA
+        // 4. INIZIALIZZAZIONE ALL'APERTURA DELLA PAGINA
         caricaAnalisiPython().then(() => {
             recuperaPrezziVeroTempoReale();
         });
         
-        // Ricarica i dati pesanti di analisi ogni 5 minuti
+        // Sincronizza l'analisi pesante ogni 5 minuti (300.000 millisecondi)
         setInterval(caricaAnalisiPython, 300000);
     </script>
 </body>
