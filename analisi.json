@@ -1,0 +1,11 @@
+{
+    "ultimo_aggiornamento_algoritmo": "In attesa...",
+    "analisi": {
+        "STM": {"sma20": "---", "sma50": "---", "rsi": "---", "segnale": "⚖️ NEUTRALE", "motivazione": "Calcolo iniziale in corso."},
+        "LDO.MI": {"sma20": "---", "sma50": "---", "rsi": "---", "segnale": "⚖️ NEUTRALE", "motivazione": "Calcolo iniziale in corso."},
+        "NVDA": {"sma20": "---", "sma50": "---", "rsi": "---", "segnale": "⚖️ NEUTRALE", "motivazione": "Calcolo iniziale in corso."},
+        "TSM": {"sma20": "---", "sma50": "---", "rsi": "---", "segnale": "⚖️ NEUTRALE", "motivazione": "Calcolo iniziale in corso."},
+        "ASML": {"sma20": "---", "sma50": "---", "rsi": "---", "segnale": "⚖️ NEUTRALE", "motivazione": "Calcolo iniziale in corso."},
+        "BTC-USD": {"sma20": "---", "sma50": "---", "rsi": "---", "segnale": "⚖️ NEUTRALE", "motivazione": "Calcolo iniziale in corso."}
+    }
+}
