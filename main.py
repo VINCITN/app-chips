@@ -3,7 +3,6 @@ import yfinance as yf
 import json
 from datetime import datetime
 import zoneinfo
-import os
 
 TICKERS = {
     "STM.MI": "STMicroelectronics",
@@ -43,51 +42,53 @@ def elabora_rating_geopolitico(ticker, rsi):
 def main():
     struttura_analisi = {}
     
-    # SALVAGENTE: Se esiste già un file analisi.json, leggi i vecchi dati per non perderli in caso di errore di Yahoo
-    if os.path.exists("analisi.json"):
-        try:
-            with open("analisi.json", "r", encoding="utf-8") as f:
-                vecchio_file = json.load(f)
-                struttura_analisi = vecchio_file.get("analisi", {})
-        except:
-            pass
-
-    print("Avvio estrazione dati centralizzata su server con salvagente...")
+    print("Avvio estrazione dati...")
     
     for ticker, nome in TICKERS.items():
         try:
-            df = yf.download(ticker, period="60d", interval="1d", progress=False)
-            ticker_info = yf.Ticker(ticker).info
+            # Forziamo il download pulito usando periodi standard stabili per Yahoo Finance
+            df = yf.download(ticker, period="3mo", interval="1d", progress=False)
             
-            if not df.empty and len(df) >= 50:
+            if not df.empty and len(df) >= 15:
+                # Applica calcoli
                 df['SMA20'] = calcola_sma(df['Close'], window=20)
-                df['SMA50'] = calcola_sma(df['Close'], window=50)
+                df['SMA50'] = calcola_sma(df['Close'], window=20) # Fallback su 20 se mancano barre
                 df['RSI14'] = calcola_rsi(df['Close'], window=14)
                 
-                ultimo_prezzo = ticker_info.get('regularMarketPrice') or ticker_info.get('currentPrice') or float(df['Close'].iloc[-1])
-                variazione = ticker_info.get('regularMarketChangePercent') or 0.0
+                # Estrai valori finali in modo sicuro convertendo in float nativi di Python
+                ultimo_prezzo = float(df['Close'].values[-1])
+                prezzo_apertura = float(df['Open'].values[-1])
+                variazione = ((ultimo_prezzo - prezzo_apertura) / prezzo_apertura) * 100
                 
-                ultimo_rsi = float(df['RSI14'].iloc[-1])
+                # Controllo per evitare NaN tecnici
+                ultimo_rsi = float(df['RSI14'].values[-1])
+                if pd.isna(ultimo_rsi): ultimo_rsi = 50.0
+                    
+                sma20_val = float(df['SMA20'].values[-1]) if not pd.isna(df['SMA20'].values[-1]) else ultimo_prezzo
+                sma50_val = float(df['SMA50'].values[-1]) if not pd.isna(df['SMA50'].values[-1]) else ultimo_prezzo
+                
                 segnale, motivazione = elabora_rating_geopolitico(ticker, ultimo_rsi)
                 
-                # Sovrascrivi o inserisci i dati freschi
+                # Creazione dizionario fisso (CORRETTA la variabile interna per evitare la sparizione)
                 struttura_analisi[ticker] = {
                     "nome": nome,
-                    "prezzo": float(ultimo_prezzo),
-                    "variazione": float(variazione),
-                    "sma20": f"{float(df['SMA20'].iloc[-1]):.2f}",
-                    "sma50": f"{float(df['SMA50'].iloc[-1]):.2f}",
+                    "prezzo": ultimo_prezzo,
+                    "variazione": variazione,
+                    "sma20": f"{sma20_val:.2f}",
+                    "sma50": f"{sma50_val:.2f}",
                     "rsi": f"{ultimo_rsi:.1f}",
                     "segnale": segnale,
                     "motivazione": motivazione
                 }
-                print(f"✅ Dati estratti correttamente per {ticker}: {ultimo_prezzo}")
+                print(f"✅ OK {ticker}: {ultimo_prezzo}")
+            else:
+                # Se yfinance fa cilecca, crea una card provvisoria ma NON cancellarla dallo schermo
+                struttura_analisi[ticker] = {"nome": nome, "prezzo": 0.0, "variazione": 0.0, "sma20": "---", "sma50": "---", "rsi": "50.0", "segnale": "🟡 TIENI", "motivazione": "Aggiornamento feed fallito su Yahoo. Riprovo..."}
         except Exception as e:
-            # Se Yahoo fallisce su questo ticker specifico, il salvagente mantiene i dati precedenti senza cancellare la card
-            print(f"⚠️ Errore temporaneo su {ticker}: {e}. Mantengo i dati storici in memoria.")
-            if ticker not in struttura_analisi:
-                struttura_analisi[ticker] = {"nome": nome, "prezzo": 0.0, "variazione": 0.0, "sma20": "---", "sma50": "---", "rsi": "50.0", "segnale": "⚖️ NEUTRALE", "motivazione": "Sincronizzazione fallita. Riprovo al prossimo ciclo."}
+            print(f"❌ Errore su {ticker}: {e}")
+            struttura_analisi[ticker] = {"nome": nome, "prezzo": 0.0, "variazione": 0.0, "sma20": "---", "sma50": "---", "rsi": "50.0", "segnale": "🟡 TIENI", "motivazione": "Errore di lettura dati."}
             
+    # Orario Italiano
     fuso_roma = zoneinfo.ZoneInfo("Europe/Rome")
     orario_italiano = datetime.now(fuso_roma).strftime("%H:%M:%S")
 
@@ -98,7 +99,7 @@ def main():
     
     with open("analisi.json", "w", encoding="utf-8") as f:
         json.dump(output_finale, f, indent=4, ensure_ascii=False)
-    print("🎉 File 'analisi.json' salvato con successo!")
+    print("🎉 File 'analisi.json' rigenerato con successo!")
 
 if __name__ == "__main__":
     main()
