@@ -43,6 +43,15 @@
     </div>
 
     <script>
+        const TICKERS = {
+            "STM.MI": "STMicroelectronics", 
+            "LDO.MI": "Leonardo S.p.A.",
+            "NVDA": "NVIDIA Corp.",
+            "TSM": "Taiwan Semiconductor",
+            "ASML": "ASML Holding",
+            "BTC-USD": "Bitcoin"
+        };
+
         function caricaDatiInfrastruttura() {
             const grid = document.getElementById('dashboard-grid');
             
@@ -54,15 +63,15 @@
                     grid.innerHTML = ''; 
                     const analisi = data.analisi;
                     
-                    // Legge dinamicamente QUALSIASI chiave generata da Python senza rompersi se cambia il nome
-                    Object.keys(analisi).forEach(ticker => {
+                    // Forza il rendering nell'ordine esatto stabilito dall'elenco dei TICKERS
+                    Object.keys(TICKERS).forEach(ticker => {
                         const asset = analisi[ticker];
+                        if (!asset) return; // Se un dato è in aggiornamento, non rompe il ciclo degli altri
 
                         const isPositive = parseFloat(asset.variazione) >= 0;
                         const changeClass = isPositive ? 'positive' : 'negative';
                         const changeSign = isPositive ? '+' : '';
                         
-                        // Controllo flessibile: se contiene .MI o ASML usa l'Euro, altrimenti Dollaro
                         const valuta = ticker.includes('.MI') || ticker.includes('ASML') ? '€' : '$';
 
                         let signalColor = '#8b949e';
@@ -99,7 +108,7 @@
                     });
                 })
                 .catch(err => {
-                    document.getElementById('update-time').innerText = "Sincronizzazione in corso... In attesa dei dati.";
+                    document.getElementById('update-time').innerText = "Allineamento flussi in corso...";
                 });
         }
 
