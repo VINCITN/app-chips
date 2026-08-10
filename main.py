@@ -4,6 +4,7 @@ import json
 import requests
 from datetime import datetime
 import zoneinfo
+import re
 
 TICKERS = {
     "STM.MI": "STMicroelectronics",
@@ -39,27 +40,32 @@ def elabora_rating_geopolitico(ticker, rsi):
     elif rsi > 70: return "🔴 VENDI", "Ipercomprato di breve termine. Possibili prese di beneficio."
     return "🟡 TIENI", "Prezzo in linea con i flussi di mercato attuali. Nessun eccesso."
 
+def ottieni_prezzo_google(ticker_google):
+    # Interroga il feed pubblico di Google Finance per azzerare i ritardi di borsa
+    try:
+        url = f"https://google.com{ticker_google}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            html = response.text
+            # Cerca il prezzo nel tag dei metadati di Google
+            match_prezzo = re.search(r'data-last-price="([^"]+)"', html)
+            match_var = re.search(r'data-price-change-percent="([^"]+)"', html)
+            
+            prezzo = float(match_prezzo.group(1)) if match_prezzo else None
+            variazione = float(match_var.group(1)) if match_var else 0.0
+            return prezzo, variazione
+    except:
+        pass
+    return None, 0.0
+
 def main():
     struttura_analisi = {}
-    
-    # 1. FEED REAL-TIME DI MILANO DIRETTO DA EURONEXT (AZZERA IL RITARDO)
-    prezzo_stm_reale = 49.23  
-    variazione_stm_reale = 0.0
-    try:
-        url_euronext = "https://euronext.com"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res_stm = requests.get(url_euronext, headers=headers, timeout=10)
-        if res_stm.status_code == 200:
-            dati = res_stm.json()
-            prezzo_stm_reale = float(dati.get('lastPrice', '49.23').replace(',', '.'))
-            variazione_stm_reale = float(dati.get('variation', '0.0').replace(',', '.').replace('%', ''))
-    except Exception as e:
-        print(f"Fallback Euronext: {e}")
-
-    print("Estrazione indicatori storici...")
+    print("Avvio estrazione flussi ultra-precisi...")
     
     for ticker, nome in TICKERS.items():
         try:
+            # 1. Scarica lo storico per gli indicatori tecnici
             ticker_download = "STM" if ticker == "STM.MI" else ticker
             df = yf.download(ticker_download, period="60d", interval="1d", progress=False)
             
@@ -68,16 +74,20 @@ def main():
                 df['SMA50'] = calcola_sma(df['Close'], window=20)
                 df['RSI14'] = calcola_rsi(df['Close'], window=14)
                 
-                # Assegnazione prezzi reali
+                # 2. SELEZIONE DEL PREZZO IN TEMPO REALE AL SECONDO
+                ultimo_prezzo, variazione = None, 0.0
+                
                 if ticker == "STM.MI":
-                    ultimo_prezzo = prezzo_stm_reale
-                    variazione = variazione_stm_reale
+                    ultimo_prezzo, variazione = ottieni_prezzo_google("STM:BIT") # STM su Borsa Italiana
+                elif ticker == "LDO.MI":
+                    ultimo_prezzo, variazione = ottieni_prezzo_google("LDO:BIT") # Leonardo su Borsa Italiana
                 elif ticker == "BTC-USD":
                     res_btc = requests.get('https://cryptocompare.com').json()
                     btc_raw = res_btc['RAW']['BTC']['USD']
-                    ultimo_prezzo = float(btc_raw['PRICE'])
-                    variazione = float(btc_raw['CHANGEPCT24HOUR'])
-                else:
+                    ultimo_prezzo, variazione = float(btc_raw['PRICE']), float(btc_raw['CHANGEPCT24HOUR'])
+                
+                # Fallback su Yahoo se Google fallisce
+                if ultimo_prezzo is None:
                     ticker_info = yf.Ticker(ticker).info
                     ultimo_prezzo = ticker_info.get('regularMarketPrice') or ticker_info.get('currentPrice') or float(df['Close'].values[-1])
                     variazione = ticker_info.get('regularMarketChangePercent') or 0.0
@@ -100,8 +110,9 @@ def main():
                     "segnale": segnale,
                     "motivazione": motivazione
                 }
+                print(f"✅ Allineato {ticker}: {ultimo_prezzo}")
         except Exception as e:
-            print(f"Errore su {ticker}: {e}")
+            print(f"❌ Errore su {ticker}: {e}")
             
     fuso_roma = zoneinfo.ZoneInfo("Europe/Rome")
     orario_italiano = datetime.now(fuso_roma).strftime("%H:%M:%S")
