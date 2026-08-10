@@ -34,77 +34,112 @@
         <header>
             <div>
                 <h1>💡 Real-Time Geopolitical & Chip Monitor</h1>
-                <div class="timestamp" id="update-time">Sincronizzazione flussi...</div>
+                <div class="timestamp" id="update-time">Caricamento flussi live in corso...</div>
             </div>
-            <div class="status-badge">🟢 SERVER DATI ATTIVO</div>
+            <div class="status-badge">🔴 LIVE TICKS BROWSER</div>
         </header>
 
         <div class="grid" id="dashboard-grid"></div>
     </div>
 
     <script>
-        const TICKERS = ["STM.MI", "LDO.MI", "NVDA", "TSM", "ASML", "BTC-USD"];
+        const TICKERS = {
+            "STM.MI": "STMicroelectronics", 
+            "LDO.MI": "Leonardo S.p.A.",
+            "NVDA": "NVIDIA Corp.",
+            "TSM": "Taiwan Semiconductor",
+            "ASML": "ASML Holding",
+            "BTC-USD": "Bitcoin"
+        };
 
-        function caricaDatiInfrastruttura() {
+        let datiAnalisiPython = {};
+
+        function eseguiAggiornamento() {
             const grid = document.getElementById('dashboard-grid');
+            const listaTickers = Object.keys(TICKERS).join(',');
             
-            fetch('analisi.json?v=' + new Date().getTime(), { cache: "no-store" })
+            // 1. Scarica l'analisi generata da Python
+            fetch('analisi.json?t=' + new Date().getTime())
                 .then(res => res.json())
                 .then(data => {
-                    document.getElementById('update-time').innerText = "Ultimo aggiornamento flussi: " + data.ultimo_aggiornamento_algoritmo + " (Aggiornato ogni 5 min automaticamente)";
+                    datiAnalisiPython = data.analisi || {};
                     
+                    // 2. Interroga Yahoo Finance direttamente dal browser tramite corsproxy.io (nessun blocco)
+                    const urlYahoo = `https://yahoo.com{listaTickers}`;
+                    return fetch(`https://corsproxy.io{encodeURIComponent(urlYahoo)}`);
+                })
+                .then(res => res.json())
+                .then(data => {
+                    const quotes = data.quoteResponse.result;
                     grid.innerHTML = ''; 
-                    const analisi = data.analisi;
                     
-                    TICKERS.forEach(ticker => {
-                        const asset = analisi[ticker];
-                        if (!asset) return; 
+                    Object.keys(TICKERS).forEach(ticker => {
+                        const quoteLive = quotes.find(q => q.symbol === ticker);
+                        const fallbackPython = datiAnalisiPython[ticker];
+                        
+                        if (!quoteLive) return;
 
-                        const isPositive = parseFloat(asset.variazione) >= 0;
+                        // Estrae il prezzo reale al secondo spaccato dal browser
+                        const prezzo = quoteLive.regularMarketPrice || quoteLive.mark || 0;
+                        const variazione = quoteLive.regularMarketChangePercent || 0;
+                        
+                        const isPositive = variazione >= 0;
                         const changeClass = isPositive ? 'positive' : 'negative';
                         const changeSign = isPositive ? '+' : '';
                         const valuta = ticker.includes('.MI') || ticker.includes('ASML') ? '€' : '$';
 
-                        let signalColor = '#8b949e';
-                        if(asset.segnale.includes('COMPRA')) signalColor = '#39d353';
-                        if(asset.segnale.includes('VENDI')) signalColor = '#f85149';
-                        if(asset.segnale.includes('TIENI')) signalColor = '#e3b341';
+                        let bloccoAlgoritmico = '';
+                        if (fallbackPython) {
+                            let signalColor = '#8b949e';
+                            if(fallbackPython.segnale.includes('COMPRA')) signalColor = '#39d353';
+                            if(fallbackPython.segnale.includes('VENDI')) signalColor = '#f85149';
+                            if(fallbackPython.segnale.includes('TIENI')) signalColor = '#e3b341';
+
+                            bloccoAlgoritmico = `
+                                <div class="metrics">
+                                    <div class="metric-box"><div class="metric-label">SMA 20</div><strong>${fallbackPython.sma20}</strong></div>
+                                    <div class="metric-box"><div class="metric-label">SMA 50</div><strong>${fallbackPython.sma50}</strong></div>
+                                    <div class="metric-box"><div class="metric-label">RSI 14</div><strong>${fallbackPython.rsi}</strong></div>
+                                </div>
+                                <div class="signal-box" style="border-left-color: ${signalColor}">
+                                    <div class="signal-title">${fallbackPython.segnale}</div>
+                                    <div class="signal-desc">${fallbackPython.motivazione}</div>
+                                </div>
+                            `;
+                        }
 
                         const cardHTML = `
                             <div class="card">
                                 <div class="ticker-header">
                                     <div>
-                                        <span class="ticker-name">${asset.nome}</span>
+                                        <span class="ticker-name">${TICKERS[ticker]}</span>
                                         <span class="ticker-symbol">${ticker}</span>
                                     </div>
                                 </div>
                                 <div class="price">
-                                    ${valuta} ${parseFloat(asset.prezzo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    ${valuta} ${prezzo.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </div>
                                 <div class="change ${changeClass}">
-                                    ${changeSign}${parseFloat(asset.variazione).toFixed(2)}% Oggi
+                                    ${changeSign}${variazione.toFixed(2)}% Oggi
                                 </div>
-                                <div class="metrics">
-                                    <div class="metric-box"><div class="metric-label">SMA 20</div><strong>${asset.sma20}</strong></div>
-                                    <div class="metric-box"><div class="metric-label">SMA 50</div><strong>${asset.sma50}</strong></div>
-                                    <div class="metric-box"><div class="metric-label">RSI 14</div><strong>${asset.rsi}</strong></div>
-                                </div>
-                                <div class="signal-box" style="border-left-color: ${signalColor}">
-                                    <div class="signal-title">${asset.segnale}</div>
-                                    <div class="signal-desc">${asset.motivazione}</div>
-                                </div>
+                                ${bloccoAlgoritmico}
                             </div>
                         `;
                         grid.innerHTML += cardHTML;
                     });
+
+                    const ora = new Date();
+                    document.getElementById('update-time').innerText = "Prezzi Live al secondo - Ultimo controllo Browser: " + ora.toLocaleTimeString('it-IT');
                 })
-                .catch(() => {
-                    document.getElementById('update-time').innerText = "Allineamento dati centralizzati...";
+                .catch(err => {
+                    console.error(err);
+                    document.getElementById('update-time').innerText = "Allineamento flussi con il server...";
                 });
         }
 
-        caricaDatiInfrastruttura();
-        setInterval(caricaDatiInfrastruttura, 15000);
+        // Avvio iniziale e refresh continuo ogni 10 secondi dal browser dell'utente
+        eseguiAggiornamento();
+        setInterval(eseguiAggiornamento, 10000);
     </script>
 </body>
 </html>
