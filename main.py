@@ -42,29 +42,25 @@ def elabora_rating_geopolitico(ticker, rsi):
 def main():
     struttura_analisi = {}
     
-    # TRUCCO SBLOCCO MILANO: Estraiamo il prezzo REAL-TIME di STM direttamente da Euronext Parigi/Milano via HTTP nativo
-    prezzo_stm_euronext = 49.30  # Valore iniziale di sicurezza
-    variazione_stm_euronext = 0.0
+    # 1. FEED REAL-TIME DI MILANO DIRETTO DA EURONEXT (AZZERA IL RITARDO)
+    prezzo_stm_reale = 49.23  
+    variazione_stm_reale = 0.0
     try:
         url_euronext = "https://euronext.com"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        headers = {"User-Agent": "Mozilla/5.0"}
         res_stm = requests.get(url_euronext, headers=headers, timeout=10)
         if res_stm.status_code == 200:
-            dati_stm = res_stm.json()
-            # Estrae il prezzo ufficiale di borsa al centesimo
-            prezzo_stm_euronext = float(dati_stm.get('lastPrice', '49.30').replace(',', '.'))
-            variazione_stm_euronext = float(dati_stm.get('variation', '0.0').replace(',', '.').replace('%', ''))
-            print(f"📡 Euronext Feed attivo per STM: {prezzo_stm_euronext} EUR")
+            dati = res_stm.json()
+            prezzo_stm_reale = float(dati.get('lastPrice', '49.23').replace(',', '.'))
+            variazione_stm_reale = float(dati.get('variation', '0.0').replace(',', '.').replace('%', ''))
     except Exception as e:
-        print(f"⚠️ Impossibile raggiungere Euronext, uso fallback: {e}")
+        print(f"Fallback Euronext: {e}")
 
-    print("Avvio estrazione dati storici ed indicatori...")
+    print("Estrazione indicatori storici...")
     
     for ticker, nome in TICKERS.items():
         try:
-            # Per l'analisi tecnica usiamo STM su Yahoo USA (che non ha blocchi sul server)
             ticker_download = "STM" if ticker == "STM.MI" else ticker
-            
             df = yf.download(ticker_download, period="60d", interval="1d", progress=False)
             
             if not df.empty and len(df) >= 15:
@@ -72,10 +68,15 @@ def main():
                 df['SMA50'] = calcola_sma(df['Close'], window=20)
                 df['RSI14'] = calcola_rsi(df['Close'], window=14)
                 
-                # Assegnazione prezzi
+                # Assegnazione prezzi reali
                 if ticker == "STM.MI":
-                    ultimo_prezzo = prezzo_stm_euronext
-                    variazione = variazione_stm_euronext
+                    ultimo_prezzo = prezzo_stm_reale
+                    variazione = variazione_stm_reale
+                elif ticker == "BTC-USD":
+                    res_btc = requests.get('https://cryptocompare.com').json()
+                    btc_raw = res_btc['RAW']['BTC']['USD']
+                    ultimo_prezzo = float(btc_raw['PRICE'])
+                    variazione = float(btc_raw['CHANGEPCT24HOUR'])
                 else:
                     ticker_info = yf.Ticker(ticker).info
                     ultimo_prezzo = ticker_info.get('regularMarketPrice') or ticker_info.get('currentPrice') or float(df['Close'].values[-1])
@@ -99,21 +100,19 @@ def main():
                     "segnale": segnale,
                     "motivazione": motivazione
                 }
-                print(f"✅ Configurato {ticker}: {ultimo_prezzo}")
         except Exception as e:
-            print(f"❌ Errore su {ticker}: {e}")
+            print(f"Errore su {ticker}: {e}")
             
     fuso_roma = zoneinfo.ZoneInfo("Europe/Rome")
     orario_italiano = datetime.now(fuso_roma).strftime("%H:%M:%S")
 
     output_finale = {
         "ultimo_aggiornamento_algoritmo": orario_italiano,
-        "analisi": estructura_analisi if 'estructura_analisi' in locals() else struttura_analisi
+        "analisi": struttura_analisi
     }
     
     with open("analisi.json", "w", encoding="utf-8") as f:
         json.dump(output_finale, f, indent=4, ensure_ascii=False)
-    print("🎉 Database centralizzato salvato correttamente!")
 
 if __name__ == "__main__":
     main()
