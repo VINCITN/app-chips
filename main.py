@@ -40,14 +40,25 @@ def elabora_rating_geopolitico(ticker, rsi):
 
 def main():
     struttura_analisi = {}
-    print("Avvio estrazione indicatori tecnici fissi...")
+    print("Avvio estrazione flussi reali sul server...")
     
     for ticker, nome in TICKERS.items():
         try:
-            # Per evitare blocchi storici su GitHub scarichiamo STM americano per l'RSI di STM.MI
+            # 1. Scarica lo storico per l'analisi tecnica
             ticker_dl = "STM" if ticker == "STM.MI" else ticker
             df = yf.download(ticker_dl, period="60d", interval="1d", progress=False)
             
+            # 2. Estrai il prezzo e la variazione in tempo reale senza usare l'HTML del browser
+            t = yf.Ticker(ticker)
+            prezzo_reale = float(t.fast_info.get('lastPrice', 0.0))
+            
+            # Calcola la variazione percentuale reale basata sulla chiusura precedente
+            chiusura_precedente = float(t.fast_info.get('previousClose', prezzo_reale))
+            if chiusura_precedente > 0:
+                variazione_reale = ((prezzo_reale - chiusura_precedente) / chiusura_precedente) * 100
+            else:
+                variazione_reale = 0.0
+
             if not df.empty and len(df) >= 15:
                 df['SMA20'] = calcola_sma(df['Close'], window=20)
                 df['SMA50'] = calcola_sma(df['Close'], window=20)
@@ -56,21 +67,27 @@ def main():
                 ultimo_rsi = float(df['RSI14'].values[-1])
                 if pd.isna(ultimo_rsi): ultimo_rsi = 50.0
                 
-                ultimo_prezzo = float(df['Close'].values[-1])
-                sma20_val = float(df['SMA20'].values[-1]) if not pd.isna(df['SMA20'].values[-1]) else ultimo_prezzo
-                sma50_val = float(df['SMA50'].values[-1]) if not pd.isna(df['SMA50'].values[-1]) else ultimo_prezzo
+                sma20_val = float(df['SMA20'].values[-1]) if not pd.isna(df['SMA20'].values[-1]) else prezzo_reale
+                sma50_val = float(df['SMA50'].values[-1]) if not pd.isna(df['SMA50'].values[-1]) else prezzo_reale
                 
+                # Se per STM avevamo usato il ticker USA per la SMA, riallineiamo il prezzo proporzionalmente
+                if ticker == "STM.MI" and sma20_val > 50:
+                    sma20_val = sma20_val * (prezzo_reale / float(df['Close'].values[-1]))
+                    sma50_val = sma50_val * (prezzo_reale / float(df['Close'].values[-1]))
+
                 segnale, motivazione = elabora_rating_geopolitico(ticker, ultimo_rsi)
                 
                 struttura_analisi[ticker] = {
                     "nome": nome,
+                    "prezzo": prezzo_reale,
+                    "variazione": variazione_reale,
                     "sma20": f"{sma20_val:.2f}",
                     "sma50": f"{sma50_val:.2f}",
                     "rsi": f"{ultimo_rsi:.1f}",
                     "segnale": segnale,
                     "motivazione": motivazione
                 }
-                print(f"✅ Indicatori calcolati per {ticker}")
+                print(f"✅ Sincronizzato {ticker}: {prezzo_reale:.2f}")
         except Exception as e:
             print(f"❌ Errore su {ticker}: {e}")
             
@@ -84,7 +101,7 @@ def main():
     
     with open("analisi.json", "w", encoding="utf-8") as f:
         json.dump(output_finale, f, indent=4, ensure_ascii=False)
-    print("🎉 File 'analisi.json' salvato sul server!")
+    print("🎉 Database centralizzato salvato con successo!")
 
 if __name__ == "__main__":
     main()
