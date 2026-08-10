@@ -44,44 +44,40 @@ def main():
     
     for ticker, nome in TICKERS.items():
         try:
-            # Scarica lo storico per gli indicatori
+            # Scarica lo storico per gli indicatori tecnici
             df = yf.download(ticker, period="60d", interval="1d", progress=False)
             
-            # Scarica il prezzo real-time (candela a 1 minuto)
-            df_live = yf.download(ticker, period="1d", interval="1m", progress=False)
+            # Recupera le informazioni rapide del ticker (contiene il prezzo corrente esatto)
+            ticker_info = yf.Ticker(ticker).info
             
             if not df.empty and len(df) >= 50:
                 df['SMA20'] = calcola_sma(df['Close'], window=20)
                 df['SMA50'] = calcola_sma(df['Close'], window=50)
                 df['RSI14'] = calcola_rsi(df['Close'], window=14)
                 
-                # PROTEZIONE ANTI-CRASH: controlla se il feed real-time ha dati
-                if not df_live.empty and len(df_live) > 0:
-                    ultimo_prezzo = float(df_live['Close'].iloc[-1])
-                    prezzo_apertura = float(df_live['Open'].iloc[0])
-                    variazione = ((ultimo_prezzo - prezzo_apertura) / prezzo_apertura) * 100
-                else:
-                    # Fallback sicuro sui dati giornalieri se i mercati sono chiusi o l'API è vuota
-                    ultimo_prezzo = float(df['Close'].iloc[-1])
-                    prezzo_apertura_ieri = float(df['Open'].iloc[-1])
-                    variazione = ((ultimo_prezzo - prezzo_apertura_ieri) / prezzo_apertura_ieri) * 100
+                # Estrazione del prezzo sicuro ed esente da crash di sintassi
+                ultimo_prezzo = ticker_info.get('regularMarketPrice') or ticker_info.get('currentPrice') or float(df['Close'].iloc[-1])
+                variazione = ticker_info.get('regularMarketChangePercent') or 0.0
                 
                 ultimo_rsi = float(df['RSI14'].iloc[-1])
                 segnale, motivazione = elabora_rating_geopolitico(ticker, ultimo_rsi)
                 
-                struttura_analisi[ticker] = {
+                struttura_analysis = {
                     "nome": nome,
-                    "prezzo": ultimo_prezzo,
-                    "variazione": variazione,
+                    "prezzo": float(ultimo_prezzo),
+                    "variazione": float(variazione),
                     "sma20": f"{float(df['SMA20'].iloc[-1]):.2f}",
                     "sma50": f"{float(df['SMA50'].iloc[-1]):.2f}",
                     "rsi": f"{ultimo_rsi:.1f}",
                     "segnale": segnale,
                     "motivazione": motivazione
                 }
-                print(f"✅ Dati salvati per {ticker}: {ultimo_prezzo}")
+                # Rinomina la chiave rimuovendo i suffissi per l'HTML se necessario, ma teniamo la coerenza
+                struttura_analisi[ticker] = struttura_analysis
+                print(f"✅ Dati estratti correttamente per {ticker}: {ultimo_prezzo}")
+                
         except Exception as e:
-            print(f"❌ Errore critico saltato su {ticker}: {e}")
+            print(f"❌ Errore saltato su {ticker}: {e}")
             
     output_finale = {
         "ultimo_aggiornamento_algoritmo": datetime.now().strftime("%H:%M:%S"),
@@ -90,7 +86,7 @@ def main():
     
     with open("analisi.json", "w", encoding="utf-8") as f:
         json.dump(output_finale, f, indent=4, ensure_ascii=False)
-    print("🎉 File 'analisi.json' riscaldato e salvato!")
+    print("🎉 File 'analisi.json' salvato con successo!")
 
 if __name__ == "__main__":
     main()
