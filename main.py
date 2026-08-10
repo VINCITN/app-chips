@@ -2,7 +2,6 @@ import pandas as pd
 import yfinance as yf
 import json
 from datetime import datetime
-import os
 
 TICKERS = {
     "STM.MI": "STMicroelectronics",
@@ -26,7 +25,6 @@ def calcola_rsi(series, window=14):
     return 100 - (100 / (1 + rs))
 
 def elabora_rating_geopolitico(ticker, rsi):
-    # CORRETTO: Adesso controlla il ticker esatto con il .MI
     if ticker == "STM.MI":
         if rsi < 35: return "🟢 COMPRA", "Le forti correzioni sul settore automotive offrono un punto d'ingresso."
         elif rsi > 65: return "🔴 VENDI", "Titolo in ipercomprato tecnico. Restrizioni export USA pesano sui margini."
@@ -46,28 +44,29 @@ def main():
     
     for ticker, nome in TICKERS.items():
         try:
-            # 1. Scarica lo storico giornaliero (60 giorni)
+            # Scarica lo storico per gli indicatori
             df = yf.download(ticker, period="60d", interval="1d", progress=False)
             
-            # 2. Scarica i dati intraday recenti (ultimi 3 giorni a 1 minuto per evitare buchi di orario)
-            df_live = yf.download(ticker, period="3d", interval="1m", progress=False)
+            # Scarica il prezzo real-time (candela a 1 minuto)
+            df_live = yf.download(ticker, period="1d", interval="1m", progress=False)
             
             if not df.empty and len(df) >= 50:
                 df['SMA20'] = calcola_sma(df['Close'], window=20)
                 df['SMA50'] = calcola_sma(df['Close'], window=50)
                 df['RSI14'] = calcola_rsi(df['Close'], window=14)
                 
-                # Estrai l'ultimo prezzo live reale disponibile
-                if not df_live.empty:
+                # PROTEZIONE ANTI-CRASH: controlla se il feed real-time ha dati
+                if not df_live.empty and len(df_live) > 0:
                     ultimo_prezzo = float(df_live['Close'].iloc[-1])
-                    prezzo_apertura_oggi = float(df['Open'].iloc[-1])
-                    variazione = ((ultimo_prezzo - prezzo_apertura_oggi) / prezzo_apertura_oggi) * 100
+                    prezzo_apertura = float(df_live['Open'].iloc[0])
+                    variazione = ((ultimo_prezzo - prezzo_apertura) / prezzo_apertura) * 100
                 else:
+                    # Fallback sicuro sui dati giornalieri se i mercati sono chiusi o l'API è vuota
                     ultimo_prezzo = float(df['Close'].iloc[-1])
-                    variazione = float(df['Pct_Change'].iloc[-1]) if 'Pct_Change' in df.columns else 0.0
+                    prezzo_apertura_ieri = float(df['Open'].iloc[-1])
+                    variazione = ((ultimo_prezzo - prezzo_apertura_ieri) / prezzo_apertura_ieri) * 100
                 
                 ultimo_rsi = float(df['RSI14'].iloc[-1])
-                # Ottimizzato: esegue la funzione una volta sola senza duplicare la chiamata
                 segnale, motivazione = elabora_rating_geopolitico(ticker, ultimo_rsi)
                 
                 struttura_analisi[ticker] = {
@@ -80,9 +79,9 @@ def main():
                     "segnale": segnale,
                     "motivazione": motivazione
                 }
-                print(f"✅ Dati estratti per {ticker}: {ultimo_prezzo}")
+                print(f"✅ Dati salvati per {ticker}: {ultimo_prezzo}")
         except Exception as e:
-            print(f"❌ Errore su {ticker}: {e}")
+            print(f"❌ Errore critico saltato su {ticker}: {e}")
             
     output_finale = {
         "ultimo_aggiornamento_algoritmo": datetime.now().strftime("%H:%M:%S"),
@@ -91,7 +90,7 @@ def main():
     
     with open("analisi.json", "w", encoding="utf-8") as f:
         json.dump(output_finale, f, indent=4, ensure_ascii=False)
-    print("🎉 File 'analisi.json' salvato con successo!")
+    print("🎉 File 'analisi.json' riscaldato e salvato!")
 
 if __name__ == "__main__":
     main()
