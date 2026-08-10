@@ -35,25 +35,23 @@ def elabora_rating_geopolitico(ticker, rsi):
         if rsi < 55: return "🟢 COMPRA", "Il superciclo della difesa globale e l'aumento dei budget UE proteggono gli ordini."
         elif rsi > 75: return "🔴 VENDI", "Ipercomprato estremo dettato dalle tensioni geopolitiche già scontate."
         else: return "🟡 TIENI", "Mantenere in portafoglio. La domanda nel comparto Aerospace & Defence rimane solida."
+    
     if rsi < 30: return "🟢 COMPRA", "Forte ipervenduto tecnico. Opportunità di accumulo di lungo periodo."
     elif rsi > 70: return "🔴 VENDI", "Ipercomprato di breve termine. Possibili prese di beneficio."
     return "🟡 TIENI", "Prezzo in linea con i flussi di mercato attuali. Nessun eccesso."
 
 def main():
     struttura_analisi = {}
-    print("Avvio estrazione flussi definitivi via Finnhub API...")
-    
-    # Token di test pubblico autorizzato per Finnhub API
-    TOKEN_FINNHUB = "sandbox_c8m9vraad3i9b7m8p610" 
+    print("Avvio estrazione flussi stabili...")
     
     for ticker, nome in TICKERS.items():
         try:
-            # 1. Scarica lo storico (usiamo STM americano SOLO per calcolare gli indicatori tecnici lenti)
+            # Scarica lo storico per gli indicatori tecnici
             ticker_download = "STM" if ticker == "STM.MI" else ticker
             df = yf.download(ticker_download, period="60d", interval="1d", progress=False)
             
-            # 2. RECUPERA IL PREZZO REAL-TIME AL SECONDO CON FINNHUB (AZZERA I CRASH E I RITARDI)
-            ultimo_prezzo = None
+            # Valori iniziali di sicurezza
+            ultimo_prezzo = 0.0
             variazione = 0.0
             
             if ticker == "BTC-USD":
@@ -61,25 +59,19 @@ def main():
                 btc_raw = res_btc['RAW']['BTC']['USD']
                 ultimo_prezzo = float(btc_raw['PRICE'])
                 variazione = float(btc_raw['CHANGEPCT24HOUR'])
+            elif ticker in ["STM.MI", "LDO.MI"]:
+                # API diretta e sbloccata per la borsa di Milano (Corretta l'estrazione dell'array [0])
+                url_milano = f"https://yahoo.com{ticker}"
+                res_mi = requests.get(url_milano, headers={"User-Agent": "Mozilla/5.0"}).json()
+                if 'quoteResponse' in res_mi and len(res_mi['quoteResponse']['result']) > 0:
+                    riga_mi = res_mi['quoteResponse']['result'][0] # <-- CORRETTO [0]: Estrae la riga senza crash
+                    ultimo_prezzo = float(riga_mi.get('regularMarketPrice', 0.0))
+                    variazione = float(riga_mi.get('regularMarketChangePercent', 0.0))
             else:
-                # Mappatura dei ticker per Finnhub (Milano usa il punto o l'estensione specifica)
-                ticker_finnhub = "STM" if ticker == "STM.MI" else ticker
-                # Se è STM o titoli europei, per la quotazione odierna interroghiamo il feed live sbloccato
-                url_fh = f"https://finnhub.io{ticker_finnhub}&token={TOKEN_FINNHUB}"
-                res_fh = requests.get(url_fh, timeout=10).json()
-                
-                # 'c' è il prezzo corrente (Current Price), 'dp' è la variazione percentuale (Percent Change)
-                ultimo_prezzo = float(res_fh.get('c', 0))
-                variazione = float(res_fh.get('dp', 0))
-                
-                # Correzione forzata se il prezzo di STM USA sballa per il fuso orario prima delle 15:30
-                # Scarichiamo il prezzo istantaneo reale convertito direttamente per evitare i 56$
-                if ticker == "STM.MI" and ultimo_prezzo > 50:
-                    # Invece di usare il prezzo USA, scarichiamo il valore esatto da un ticker alternativo di Milano
-                    res_milano = requests.get("https://yahoo.com", headers={"User-Agent": "Mozilla/5.0"}).json()
-                    riga_mi = res_milano['quoteResponse']['result'][0]
-                    ultimo_prezzo = float(riga_mi['regularMarketPrice'])
-                    variazione = float(riga_mi['regularMarketChangePercent'])
+                # Per i titoli USA usiamo il feed standard di Yahoo
+                ticker_info = yf.Ticker(ticker).info
+                ultimo_prezzo = ticker_info.get('regularMarketPrice') or ticker_info.get('currentPrice') or float(df['Close'].values[-1])
+                variazione = ticker_info.get('regularMarketChangePercent') or 0.0
 
             if not df.empty and len(df) >= 15:
                 df['SMA20'] = calcola_sma(df['Close'], window=20)
@@ -89,13 +81,14 @@ def main():
                 ultimo_rsi = float(df['RSI14'].values[-1])
                 if pd.isna(ultimo_rsi): ultimo_rsi = 50.0
                 
+                # Se per calcolare gli indicatori di STM avevamo usato il ticker USA, riallineiamo le medie in proporzione
                 sma20_val = float(df['SMA20'].values[-1]) if not pd.isna(df['SMA20'].values[-1]) else ultimo_prezzo
                 sma50_val = float(df['SMA50'].values[-1]) if not pd.isna(df['SMA50'].values[-1]) else ultimo_prezzo
                 
-                # Se avevamo sovrastimato il prezzo a causa del dollaro, correggiamo anche le medie mobili proporzionalmente
                 if ticker == "STM.MI" and sma20_val > 50:
-                    sma20_val = sma20_val * (ultimo_prezzo / 56.0)
-                    sma50_val = sma50_val * (ultimo_prezzo / 56.0)
+                    # Rapporto di conversione dollaro/euro istantaneo basato sulla chiusura
+                    sma20_val = sma20_val * (ultimo_prezzo / float(df['Close'].values[-1]))
+                    sma50_val = sma50_val * (ultimo_prezzo / float(df['Close'].values[-1]))
 
                 segnale, motivazione = elabora_rating_geopolitico(ticker, ultimo_rsi)
                 
@@ -109,9 +102,9 @@ def main():
                     "segnale": segnale,
                     "motivazione": motivazione
                 }
-                print(f"✅ Prezzo corretto per {ticker}: {ultimo_prezzo}")
+                print(f"✅ OK {ticker}: {ultimo_prezzo:.2f}")
         except Exception as e:
-            print(f"❌ Errore su {ticker}: {e}")
+            print(f"❌ Errore saltato su {ticker}: {e}")
             
     fuso_roma = zoneinfo.ZoneInfo("Europe/Rome")
     orario_italiano = datetime.now(fuso_roma).strftime("%H:%M:%S")
@@ -123,6 +116,7 @@ def main():
     
     with open("analisi.json", "w", encoding="utf-8") as f:
         json.dump(output_finale, f, indent=4, ensure_ascii=False)
+    print("🎉 File 'analisi.json' salvato e ripristinato con successo!")
 
 if __name__ == "__main__":
     main()
