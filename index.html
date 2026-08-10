@@ -34,7 +34,7 @@
         <header>
             <div>
                 <h1>💡 Real-Time Geopolitical & Chip Monitor</h1>
-                <div class="timestamp" id="update-time">Sincronizzazione forzata del feed in corso...</div>
+                <div class="timestamp" id="update-time">Caricamento dati dal server...</div>
             </div>
             <div class="status-badge">🟢 SERVER DATI ATTIVO</div>
         </header>
@@ -43,40 +43,27 @@
     </div>
 
     <script>
-        const TICKERS = {
-            "STM.MI": "STMicroelectronics", 
-            "LDO.MI": "Leonardo S.p.A.",
-            "NVDA": "NVIDIA Corp.",
-            "TSM": "Taiwan Semiconductor",
-            "ASML": "ASML Holding",
-            "BTC-USD": "Bitcoin"
-        };
-
         function caricaDatiInfrastruttura() {
             const grid = document.getElementById('dashboard-grid');
             
-            // TRUCCO DEFINITIVO: getTime() genera un numero unico ogni millisecondo distruggendo la cache bloccata alle 12:35
-            const urlForzato = 'analisi.json?v=' + new Date().getTime();
-            
-            fetch(urlForzato, { cache: "no-store" })
-                .then(res => {
-                    if (!res.ok) throw new Error();
-                    return res.json();
-                })
+            fetch('analisi.json?t=' + new Date().getTime())
+                .then(res => res.json())
                 .then(data => {
                     document.getElementById('update-time').innerText = "Ultimo aggiornamento flussi: " + data.ultimo_aggiornamento_algoritmo + " (Aggiornato ogni 5 min automaticamente)";
                     
                     grid.innerHTML = ''; 
                     const analisi = data.analisi;
                     
-                    Object.keys(TICKERS).forEach(ticker => {
+                    // Legge dinamicamente QUALSIASI chiave generata da Python senza rompersi se cambia il nome
+                    Object.keys(analisi).forEach(ticker => {
                         const asset = analisi[ticker];
-                        if (!asset) return; 
 
-                        const isPositive = asset.variazione >= 0;
+                        const isPositive = parseFloat(asset.variazione) >= 0;
                         const changeClass = isPositive ? 'positive' : 'negative';
                         const changeSign = isPositive ? '+' : '';
-                        const valuta = ['LDO.MI', 'ASML', 'STM.MI'].includes(ticker) ? '€' : '$';
+                        
+                        // Controllo flessibile: se contiene .MI o ASML usa l'Euro, altrimenti Dollaro
+                        const valuta = ticker.includes('.MI') || ticker.includes('ASML') ? '€' : '$';
 
                         let signalColor = '#8b949e';
                         if(asset.segnale.includes('COMPRA')) signalColor = '#39d353';
@@ -112,7 +99,7 @@
                     });
                 })
                 .catch(err => {
-                    document.getElementById('update-time').innerText = "Allineamento dati in corso... In attesa del completamento del ciclo GitHub.";
+                    document.getElementById('update-time').innerText = "Sincronizzazione in corso... In attesa dei dati.";
                 });
         }
 
