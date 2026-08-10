@@ -43,24 +43,40 @@
     </div>
 
     <script>
+        // Configurazione Tickers - Aggiornato STM in STM.MI per mercato Milano (€)
+        const TICKERS = {
+            "STM.MI": "STMicroelectronics", 
+            "LDO.MI": "Leonardo S.p.A.",
+            "NVDA": "NVIDIA Corp.",
+            "TSM": "Taiwan Semiconductor",
+            "ASML": "ASML Holding",
+            "BTC-USD": "Bitcoin"
+        };
+
+        let datiAnalisiPython = {};
+
         function caricaDatiInfrastruttura() {
             const grid = document.getElementById('dashboard-grid');
             
-            // Legge il file JSON generato in modo sicuro lato server da GitHub Actions
+            // Scarica l'analisi strutturata locale generata da GitHub Actions
             fetch('analisi.json?t=' + Math.random())
                 .then(res => res.json())
                 .then(data => {
                     document.getElementById('update-time').innerText = "Ultimo aggiornamento flussi: " + data.ultimo_aggiornamento_algoritmo + " (Aggiornato ogni 5 min automaticamente)";
                     
-                    grid.innerHTML = ''; // Svuota lo schermo
+                    grid.innerHTML = ''; // Pulisce lo schermo
                     const analisi = data.analisi;
                     
-                    Object.keys(analisi).forEach(ticker => {
+                    Object.keys(TICKERS).forEach(ticker => {
                         const asset = analisi[ticker];
+                        if (!asset) return; // Salta se i dati del ticker non sono ancora pronti nel JSON
+
                         const isPositive = asset.variazione >= 0;
                         const changeClass = isPositive ? 'positive' : 'negative';
                         const changeSign = isPositive ? '+' : '';
-                        const valuta = ['LDO.MI', 'ASML', 'STM'].includes(ticker) ? '€' : '$';
+                        
+                        // Riconoscimento dinamico della valuta corretto per includere STM.MI
+                        const valuta = ['LDO.MI', 'ASML', 'STM.MI'].includes(ticker) ? '€' : '$';
 
                         let signalColor = '#8b949e';
                         if(asset.segnale.includes('COMPRA')) signalColor = '#39d353';
@@ -76,10 +92,10 @@
                                     </div>
                                 </div>
                                 <div class="price">
-                                    ${valuta} ${asset.prezzo.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    ${valuta} ${parseFloat(asset.prezzo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </div>
                                 <div class="change ${changeClass}">
-                                    ${changeSign}${asset.variazione.toFixed(2)}% Oggi
+                                    ${changeSign}${parseFloat(asset.variazione).toFixed(2)}% Oggi
                                 </div>
                                 <div class="metrics">
                                     <div class="metric-box"><div class="metric-label">SMA 20</div><strong>${asset.sma20}</strong></div>
@@ -96,11 +112,11 @@
                     });
                 })
                 .catch(err => {
-                    document.getElementById('update-time').innerText = "Sincronizzazione in corso... Attendi il completamento del primo ciclo GitHub.";
+                    document.getElementById('update-time').innerText = "Sincronizzazione in corso... In attesa del completamento del ciclo GitHub.";
                 });
         }
 
-        // Carica subito i dati e imposta un controllo automatico locale ogni 30 secondi
+        // Avvio iniziale ed esecuzione ciclica locale ogni 30 secondi
         caricaDatiInfrastruttura();
         setInterval(caricaDatiInfrastruttura, 30000);
     </script>
