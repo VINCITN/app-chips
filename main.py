@@ -2,6 +2,7 @@ import pandas as pd
 import yfinance as yf
 import json
 from datetime import datetime
+import zoneinfo # <-- Libreria nativa per i fusi orari
 
 TICKERS = {
     "STM.MI": "STMicroelectronics",
@@ -44,10 +45,7 @@ def main():
     
     for ticker, nome in TICKERS.items():
         try:
-            # Scarica lo storico per gli indicatori tecnici
             df = yf.download(ticker, period="60d", interval="1d", progress=False)
-            
-            # Recupera le informazioni rapide del ticker (contiene il prezzo corrente esatto)
             ticker_info = yf.Ticker(ticker).info
             
             if not df.empty and len(df) >= 50:
@@ -55,14 +53,13 @@ def main():
                 df['SMA50'] = calcola_sma(df['Close'], window=50)
                 df['RSI14'] = calcola_rsi(df['Close'], window=14)
                 
-                # Estrazione del prezzo sicuro ed esente da crash di sintassi
                 ultimo_prezzo = ticker_info.get('regularMarketPrice') or ticker_info.get('currentPrice') or float(df['Close'].iloc[-1])
                 variazione = ticker_info.get('regularMarketChangePercent') or 0.0
                 
                 ultimo_rsi = float(df['RSI14'].iloc[-1])
                 segnale, motivazione = elabora_rating_geopolitico(ticker, ultimo_rsi)
                 
-                struttura_analysis = {
+                struttura_analisi[ticker] = {
                     "nome": nome,
                     "prezzo": float(ultimo_prezzo),
                     "variazione": float(variazione),
@@ -72,21 +69,23 @@ def main():
                     "segnale": segnale,
                     "motivazione": motivazione
                 }
-                # Rinomina la chiave rimuovendo i suffissi per l'HTML se necessario, ma teniamo la coerenza
-                struttura_analisi[ticker] = struttura_analysis
                 print(f"✅ Dati estratti correttamente per {ticker}: {ultimo_prezzo}")
                 
         except Exception as e:
             print(f"❌ Errore saltato su {ticker}: {e}")
             
+    # CORRETTO: Forza il fuso orario di Roma (Europe/Rome) per evitare le due ore di ritardo di GitHub
+    fuso_roma = zoneinfo.ZoneInfo("Europe/Rome")
+    orario_italiano = datetime.now(fuso_roma).strftime("%H:%M:%S")
+
     output_finale = {
-        "ultimo_aggiornamento_algoritmo": datetime.now().strftime("%H:%M:%S"),
+        "ultimo_aggiornamento_algoritmo": orario_italiano,
         "analisi": struttura_analisi
     }
     
     with open("analisi.json", "w", encoding="utf-8") as f:
         json.dump(output_finale, f, indent=4, ensure_ascii=False)
-    print("🎉 File 'analisi.json' salvato con successo!")
+    print(f"🎉 File 'analisi.json' salvato con orario italiano: {orario_italiano}")
 
 if __name__ == "__main__":
     main()
