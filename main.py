@@ -2,7 +2,8 @@ import pandas as pd
 import yfinance as yf
 import json
 from datetime import datetime
-import zoneinfo # <-- Libreria nativa per i fusi orari
+import zoneinfo
+import os
 
 TICKERS = {
     "STM.MI": "STMicroelectronics",
@@ -41,7 +42,17 @@ def elabora_rating_geopolitico(ticker, rsi):
 
 def main():
     struttura_analisi = {}
-    print("Avvio estrazione dati centralizzata su server...")
+    
+    # SALVAGENTE: Se esiste già un file analisi.json, leggi i vecchi dati per non perderli in caso di errore di Yahoo
+    if os.path.exists("analisi.json"):
+        try:
+            with open("analisi.json", "r", encoding="utf-8") as f:
+                vecchio_file = json.load(f)
+                struttura_analisi = vecchio_file.get("analisi", {})
+        except:
+            pass
+
+    print("Avvio estrazione dati centralizzata su server con salvagente...")
     
     for ticker, nome in TICKERS.items():
         try:
@@ -59,6 +70,7 @@ def main():
                 ultimo_rsi = float(df['RSI14'].iloc[-1])
                 segnale, motivazione = elabora_rating_geopolitico(ticker, ultimo_rsi)
                 
+                # Sovrascrivi o inserisci i dati freschi
                 struttura_analisi[ticker] = {
                     "nome": nome,
                     "prezzo": float(ultimo_prezzo),
@@ -70,11 +82,12 @@ def main():
                     "motivazione": motivazione
                 }
                 print(f"✅ Dati estratti correttamente per {ticker}: {ultimo_prezzo}")
-                
         except Exception as e:
-            print(f"❌ Errore saltato su {ticker}: {e}")
+            # Se Yahoo fallisce su questo ticker specifico, il salvagente mantiene i dati precedenti senza cancellare la card
+            print(f"⚠️ Errore temporaneo su {ticker}: {e}. Mantengo i dati storici in memoria.")
+            if ticker not in struttura_analisi:
+                struttura_analisi[ticker] = {"nome": nome, "prezzo": 0.0, "variazione": 0.0, "sma20": "---", "sma50": "---", "rsi": "50.0", "segnale": "⚖️ NEUTRALE", "motivazione": "Sincronizzazione fallita. Riprovo al prossimo ciclo."}
             
-    # CORRETTO: Forza il fuso orario di Roma (Europe/Rome) per evitare le due ore di ritardo di GitHub
     fuso_roma = zoneinfo.ZoneInfo("Europe/Rome")
     orario_italiano = datetime.now(fuso_roma).strftime("%H:%M:%S")
 
@@ -85,7 +98,7 @@ def main():
     
     with open("analisi.json", "w", encoding="utf-8") as f:
         json.dump(output_finale, f, indent=4, ensure_ascii=False)
-    print(f"🎉 File 'analisi.json' salvato con orario italiano: {orario_italiano}")
+    print("🎉 File 'analisi.json' salvato con successo!")
 
 if __name__ == "__main__":
     main()
