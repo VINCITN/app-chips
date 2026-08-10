@@ -5,6 +5,7 @@ on:
     branches: [ main ]
   schedule:
     - cron: '*/5 * * * *'
+  workflow_dispatch: # <-- INCOLLA QUESTA RIGA CON LO STESSO SPAZIAMENTO
 jobs:
   build-and-sync:
     runs-on: ubuntu-latest
