@@ -34,7 +34,7 @@
         <header>
             <div>
                 <h1>💡 Real-Time Geopolitical & Chip Monitor</h1>
-                <div class="timestamp" id="update-time">Caricamento dati dal server...</div>
+                <div class="timestamp" id="update-time">Sincronizzazione forzata del feed in corso...</div>
             </div>
             <div class="status-badge">🟢 SERVER DATI ATTIVO</div>
         </header>
@@ -43,7 +43,6 @@
     </div>
 
     <script>
-        // Configurazione Tickers - Aggiornato STM in STM.MI per mercato Milano (€)
         const TICKERS = {
             "STM.MI": "STMicroelectronics", 
             "LDO.MI": "Leonardo S.p.A.",
@@ -53,29 +52,30 @@
             "BTC-USD": "Bitcoin"
         };
 
-        let datiAnalisiPython = {};
-
         function caricaDatiInfrastruttura() {
             const grid = document.getElementById('dashboard-grid');
             
-            // Scarica l'analisi strutturata locale generata da GitHub Actions
-            fetch('analisi.json?t=' + Math.random())
-                .then(res => res.json())
+            // TRUCCO DEFINITIVO: getTime() genera un numero unico ogni millisecondo distruggendo la cache bloccata alle 12:35
+            const urlForzato = 'analisi.json?v=' + new Date().getTime();
+            
+            fetch(urlForzato, { cache: "no-store" })
+                .then(res => {
+                    if (!res.ok) throw new Error();
+                    return res.json();
+                })
                 .then(data => {
                     document.getElementById('update-time').innerText = "Ultimo aggiornamento flussi: " + data.ultimo_aggiornamento_algoritmo + " (Aggiornato ogni 5 min automaticamente)";
                     
-                    grid.innerHTML = ''; // Pulisce lo schermo
+                    grid.innerHTML = ''; 
                     const analisi = data.analisi;
                     
                     Object.keys(TICKERS).forEach(ticker => {
                         const asset = analisi[ticker];
-                        if (!asset) return; // Salta se i dati del ticker non sono ancora pronti nel JSON
+                        if (!asset) return; 
 
                         const isPositive = asset.variazione >= 0;
                         const changeClass = isPositive ? 'positive' : 'negative';
                         const changeSign = isPositive ? '+' : '';
-                        
-                        // Riconoscimento dinamico della valuta corretto per includere STM.MI
                         const valuta = ['LDO.MI', 'ASML', 'STM.MI'].includes(ticker) ? '€' : '$';
 
                         let signalColor = '#8b949e';
@@ -112,11 +112,10 @@
                     });
                 })
                 .catch(err => {
-                    document.getElementById('update-time').innerText = "Sincronizzazione in corso... In attesa del completamento del ciclo GitHub.";
+                    document.getElementById('update-time').innerText = "Allineamento dati in corso... In attesa del completamento del ciclo GitHub.";
                 });
         }
 
-        // Avvio iniziale ed esecuzione ciclica locale ogni 30 secondi
         caricaDatiInfrastruttura();
         setInterval(caricaDatiInfrastruttura, 30000);
     </script>
