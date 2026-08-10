@@ -58,7 +58,7 @@
         let datiAnalisiPython = {};
         let secondiMancanti = 30;
 
-        // 1. CARICA L'ANALISI STATICA GENERATA DA GITHUB ACTIONS (OGNI 5 MINUTI)
+        // 1. CARICA I SEGNALI E LE MEDIE DALL'ANALISI DI GITHUB ACTIONS (OGNI 5 MINUTI)
         function caricaAnalisiPython() {
             return fetch('analisi.json?t=' + new Date().getTime())
                 .then(res => {
@@ -70,30 +70,29 @@
                     document.getElementById('algo-time').innerText = "Analisi Geopolitica aggiornata al: " + data.ultimo_aggiornamento_algoritmo;
                 })
                 .catch(() => {
-                    document.getElementById('algo-time').innerText = "Analisi Geopolitica: Modalità Fallback attiva (Dati locali non trovati)";
+                    document.getElementById('algo-time').innerText = "Analisi Geopolitica: Caricamento segnali in corso...";
                 });
         }
 
-        // 2. RECUPERA I PREZZI IN TEMPO REALE DAL BROWSER (OGNI 30 SECONDI)
+        // 2. SCARICA I PREZZI REALI DIRETTAMENTE DAL BROWSER (OGNI 30 SECONDI)
         function recuperaPrezziVeroTempoReale() {
             const grid = document.getElementById('dashboard-grid');
             const listaTickers = Object.keys(TICKERS).join(',');
             
-            // Endpoint ufficiale Yahoo Finance incapsulato nel proxy AllOrigins per bypassare il blocco CORS del browser
+            // Richiesta a Yahoo Finance avvolta nel proxy AllOrigins per sbloccare i permessi CORS
             const urlYahoo = `https://yahoo.com{listaTickers}`;
             const urlProxy = `https://allorigins.win{encodeURIComponent(urlYahoo)}`;
             
             fetch(urlProxy)
                 .then(res => {
-                    if (!res.ok) throw new Error('Errore di rete del Proxy');
+                    if (!res.ok) throw new Error('Errore Proxy');
                     return res.json();
                 })
                 .then(wrapper => {
-                    // AllOrigins restituisce i dati reali come stringa JSON nel campo 'contents'
                     const data = JSON.parse(wrapper.contents);
                     const quotes = data.quoteResponse.result;
                     
-                    grid.innerHTML = ''; // Svuota la griglia prima del rendering
+                    grid.innerHTML = ''; // Pulisce la griglia grafica
                     
                     quotes.forEach(quote => {
                         const ticker = quote.symbol;
@@ -106,7 +105,7 @@
                         const changeSign = isPositive ? '+' : '';
                         const valuta = ['LDO.MI', 'ASML', 'STM'].includes(ticker) ? '€' : '$';
 
-                        // Associa l'analisi calcolata in background dal file JSON di Python
+                        // Inietta l'analisi calcolata in background da Python
                         const haAnalisi = datiAnalisiPython[ticker];
                         let bloccoAlgoritmico = '';
 
@@ -150,22 +149,21 @@
                     });
 
                     const ora = new Date();
-                    document.getElementById('update-time').innerText = "Quotazioni Live (Aggiornamento automatico browser): " + ora.toLocaleTimeString('it-IT');
-                    secondiMancanti = 30; // Resetta il timer
+                    document.getElementById('update-time').innerText = "Quotazioni Live (Aggiornamento Browser): " + ora.toLocaleTimeString('it-IT');
+                    secondiMancanti = 30; // Ripristina il timer
                 })
                 .catch(err => {
-                    console.error("Errore feed diretto:", err);
-                    document.getElementById('update-time').innerText = "Errore feed dati. Nuovo tentativo a breve...";
-                    secondiMancanti = 5; // In caso di errore accelera il prossimo tentativo
+                    console.error("Errore feed:", err);
+                    document.getElementById('update-time').innerText = "Errore feed dati. Riprovo automaticamente...";
+                    secondiMancanti = 5; // Riprova subito tra 5 secondi
                 });
         }
 
-        // 3. GESTIONE DEL TIMER VISIVO DELLA PROGRESS BAR (1 TICK AL SECONDO)
+        // 3. LOGICA DI SCORRIMENTO DELLA BARRA DEL TIMER (1 VOLTA AL SECONDO)
         setInterval(() => {
             secondiMancanti--;
             const progBar = document.getElementById('progress-bar');
             if (progBar) {
-                // Calcola la larghezza percentuale rimanente del timer
                 const percentuale = Math.max(0, (secondiMancanti / 30) * 100);
                 progBar.style.width = percentuale + '%';
             }
@@ -175,8 +173,13 @@
             }
         }, 1000);
 
-        // 4. INIZIALIZZAZIONE ALL'APERTURA DELLA PAGINA
+        // 4. ESECUZIONE AL CARICAMENTO DELLA PAGINA
         caricaAnalisiPython().then(() => {
             recuperaPrezziVeroTempoReale();
         });
         
+        // Ricarica i dati pesanti di analisi ogni 5 minuti
+        setInterval(caricaAnalisiPython, 300000);
+    </script>
+</body>
+</html>
