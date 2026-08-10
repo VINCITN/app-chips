@@ -5,7 +5,7 @@ from datetime import datetime
 import os
 
 TICKERS = {
-    "STM": "STMicroelectronics",
+    "STM.MI": "STMicroelectronics",
     "LDO.MI": "Leonardo S.p.A.",
     "NVDA": "NVIDIA Corp.",
     "TSM": "Taiwan Semiconductor",
