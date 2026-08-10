@@ -1,6 +1,7 @@
 import pandas as pd
 import yfinance as yf
 import json
+import requests
 from datetime import datetime
 import zoneinfo
 
@@ -41,48 +42,47 @@ def elabora_rating_geopolitico(ticker, rsi):
 
 def main():
     struttura_analisi = {}
-    print("Avvio estrazione flussi con conversione valutaria anti-blocco...")
+    print("Avvio estrazione flussi stabili ad alta tolleranza...")
     
-    # 1. RECUPERA IL TASSO DI CAMBIO EFFETTIVO EUR/USD DA YAHOO
-    tasso_cambio = 1.09 # Valore di riserva standard
-    try:
-        fx = yf.download("EURUSD=X", period="1d", interval="1m", progress=False)
-        if not fx.empty:
-            tasso_cambio = float(fx['Close'].iloc[-1])
-            print(f"💱 Tasso di cambio EUR/USD rilevato: {tasso_cambio}")
-    except Exception as e:
-        print(f"Impossibile leggere il cambio, uso fallback: {e}")
-
     for ticker, nome in TICKERS.items():
         try:
-            # INTERCETTA I TICKER DI MILANO E USA I RISPETTIVI GEMELLI SUL MERCATO NYSE/PINK SHEETS PER EVITARE IL BLOCCO 403
-            ticker_sicuro = ticker
-            if ticker == "STM.MI": ticker_sicuro = "STM"
-            if ticker == "LDO.MI": ticker_sicuro = "LDOFYN" # Ticker americano alternativo stabili di Leonardo
+            # Scarica lo storico (usiamo ticker americani stabili per gli indicatori tecnici lenti per evitare blocchi)
+            ticker_download = "STM" if ticker == "STM.MI" else ("LDO.MI" if ticker == "LDO.MI" else ticker)
+            df = yf.download(ticker_download, period="60d", interval="1d", progress=False)
             
-            df = yf.download(ticker_sicuro, period="60d", interval="1d", progress=False)
+            ultimo_prezzo = 0.0
+            variazione = 0.0
             
+            # RECUPERO PREZZI LIVE BLINDATO DA SORGENTI SBLOCCATE (STOOQ E CRYPTOCOMPARE)
+            if ticker == "BTC-USD":
+                res_btc = requests.get('https://cryptocompare.com').json()
+                btc_raw = res_btc['RAW']['BTC']['USD']
+                ultimo_prezzo = float(btc_raw['PRICE'])
+                variazione = float(btc_raw['CHANGEPCT24HOUR'])
+            else:
+                # Mappatura dei codici per l'API Stooq aperta (stm.it, ldo.it, nvda.us, ecc.)
+                codice_stooq = "ldo.it" if ticker == "LDO.MI" else ("stm.it" if ticker == "STM.MI" else f"{ticker.lower()}.us")
+                url_stooq = f"https://stooq.com{codice_stooq}"
+                res_sq = requests.get(url_stooq, timeout=10).json()
+                if 'aq' in res_sq:
+                    riga = res_sq['aq']
+                    ultimo_prezzo = float(riga.get('l1', 0.0))
+                    variazione = float(riga.get('c1', 0.0))
+            
+            # Se l'API Stooq fallisce, usiamo l'ultimo valore disponibile da Yahoo
+            if ultimo_prezzo == 0.0 and not df.empty:
+                ultimo_prezzo = float(df['Close'].iloc[-1])
+
             if not df.empty and len(df) >= 15:
                 df['SMA20'] = calcola_sma(df['Close'], window=20)
                 df['SMA50'] = calcola_sma(df['Close'], window=20)
                 df['RSI14'] = calcola_rsi(df['Close'], window=14)
-                
-                # Prendi gli ultimi dati disponibili convertendo in float nativi
-                ultimo_prezzo = float(df['Close'].iloc[-1])
-                prezzo_apertura = float(df['Open'].iloc[-1])
-                variazione = ((ultimo_prezzo - prezzo_apertura) / prezzo_apertura) * 100
                 
                 ultimo_rsi = float(df['RSI14'].iloc[-1])
                 if pd.isna(ultimo_rsi): ultimo_rsi = 50.0
                     
                 sma20_val = float(df['SMA20'].iloc[-1]) if not pd.isna(df['SMA20'].iloc[-1]) else ultimo_prezzo
                 sma50_val = float(df['SMA50'].iloc[-1]) if not pd.isna(df['SMA50'].iloc[-1]) else ultimo_prezzo
-                
-                # APPLICA LA CONVERSIONE DA DOLLARI A EURO SE IL TITOLO FA RIFERIMENTO ALLA BORSA DI MILANO
-                if ticker in ["STM.MI", "LDO.MI"]:
-                    ultimo_prezzo = ultimo_prezzo / tasso_cambio
-                    sma20_val = sma20_val / tasso_cambio
-                    sma50_val = sma50_val / tasso_cambio
                 
                 segnale, motivazione = elabora_rating_geopolitico(ticker, ultimo_rsi)
                 
@@ -110,7 +110,7 @@ def main():
     
     with open("analisi.json", "w", encoding="utf-8") as f:
         json.dump(output_finale, f, indent=4, ensure_ascii=False)
-    print("🎉 File 'analisi.json' ricostruito con successo senza alcuna omissione!")
+    print("🎉 File 'analisi.json' salvato con successo!")
 
 if __name__ == "__main__":
     main()
