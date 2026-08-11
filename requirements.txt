@@ -1,3 +1,8 @@
 streamlit
-pandas
 yfinance
+pandas
+numpy
+beautifulsoup4
+requests
+pytz
+streamlit-autorefresh
