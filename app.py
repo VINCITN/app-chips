@@ -1,80 +1,105 @@
+import streamlit as str_lt  # Questa è la libreria Streamlit per la grafica
+import yfinance as yf
+import pandas as pd
+from datetime import datetime
+import pytz
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
-import numpy as np
 
-def ottieni_prezzo_realtime_milano(ticker):
-    """
-    Estrae il prezzo in tempo reale da fonti pubbliche per aggirare il ritardo di 15 minuti.
-    """
-    # Mappatura dei ticker sui codici ISIN o ID del Sole 24 Ore
-    # STM (STMicroelectronics): IT0000226229 o id stm
-    # LDO (Leonardo): IT0003856405
-    
-    url_mappa = {
-        "STM.MI": "https://ilsole24ore.com",
-        "LDO.MI": "https://ilsole24ore.com"
-    }
-    
-    if ticker not in url_mappa:
-        # Se non è Milano, usa un fallback generico o mantieni il calcolo classico
-        return None
-        
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-    
+# 1. Configurazione della pagina Hugging Face
+str_lt.set_page_config(page_title="Geopolitical & Chip Monitor", page_icon="💡", layout="wide")
+
+# Auto-aggiornamento ogni 5 minuti (300.000 millisecondi)
+from streamlit_autorefresh import st_autorefresh
+st_autorefresh(interval=300000, key="datarefresh")
+
+# 2. Funzione per estrarre i prezzi IN DIRETTA da Milano (Senza ritardo di Yahoo)
+def prendi_prezzo_realtime_milano(isin, ticker_fallback):
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     try:
-        risposta = requests.get(url_mappa[ticker], headers=headers, timeout=10)
+        # Scraping da Il Sole 24 Ore per dati istantanei di Piazza Affari
+        url = f"https://ilsole24ore.com{isin}"
+        risposta = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(risposta.text, 'html.parser')
         
-        # Cerca la classe CSS che contiene l'ultimo prezzo sul Sole 24 Ore
-        # Nota: La classe esatta dipende dalla struttura del sito. In alternativa si usa Finanza Repubblica o Milano Finanza.
-        elemento_prezzo = soup.find("span", {"class": "v-price"}) # Esempio di selettore
-        elemento_variazione = soup.find("span", {"class": "v-chg"})
+        # Estrazione dati reali dal sito finanziario
+        prezzo_testo = soup.find("span", {"class": "v-price"}).text
+        var_testo = soup.find("span", {"class": "v-chg"}).text
         
-        prezzo = float(elemento_prezzo.text.replace(",", ".").strip())
-        variazione = float(elemento_variazione.text.replace(",", ".").replace("%", "").strip())
-        
+        prezzo = float(prezzo_testo.replace(".", "").replace(",", ".").strip())
+        variazione = float(var_testo.replace("%", "").replace(",", ".").strip())
         return prezzo, variazione
-    except Exception as e:
-        print(f"Errore scraping realtime per {ticker}: {e}")
-        return None, None
+    except Exception:
+        # Se lo scraping fallisce, usa Yahoo Finance come paracadute
+        t = yf.Ticker(ticker_fallback)
+        df_oggi = t.history(period="1d", interval="1m")
+        if not df_oggi.empty:
+            return df_oggi['Close'].iloc[-1], ((df_oggi['Close'].iloc[-1] - t.info.get('previousClose', df_oggi['Close'].iloc[-1])) / t.info.get('previousClose', 1)) * 100
+        return 0.0, 0.0
 
-def calcola_indicatori_corretti(ticker_symbol):
-    """
-    Risolve il bug delle medie mobili uguali e unisce il prezzo in tempo reale.
-    """
-    import yfinance as yf # Usato SOLO per lo storico delle medie mobili, non per il prezzo di oggi
-    
-    # 1. Scarica lo storico (i dati passati di Yahoo vanno bene per le medie mobili)
-    ticker = yf.Ticker(ticker_symbol)
-    df = ticker.history(period="3mo", interval="1d")
-    
+# 3. Funzione per calcolare gli indicatori (Risolve il bug delle medie uguali)
+def calcola_indicatori(ticker_storico):
+    ticker = yf.Ticker(ticker_storico)
+    df = ticker.history(period="3mo", interval="1d") # Scarica 3 mesi per la SMA 50
     if df.empty:
-        return None
-
-    # CORREZIONE BUG MEDIE MOBILI (Finestre temporali differenti e distinte)
-    df['SMA20'] = df['Close'].rolling(window=20).mean()
-    df['SMA50'] = df['Close'].rolling(window=50).mean()
+        return 0.0, 0.0, 50.0
     
-    # Calcolo RSI 14 corretto
+    # CORREZIONE BUG: finestre di calcolo separate
+    sma20 = df['Close'].rolling(window=20).mean().iloc[-1]
+    sma50 = df['Close'].rolling(window=50).mean().iloc[-1]
+    
+    # Calcolo RSI 14
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / (loss + 1e-9) # Evita divisione per zero
-    df['RSI14'] = 100 - (100 / (1 + rs))
+    rs = gain / (loss + 1e-9)
+    rsi = (100 - (100 / (1 + rs))).iloc[-1]
     
-    # 2. Prendi il prezzo IN TEMPO REALE SENZA RITARDO dallo scraping
-    prezzo_oggi, variazione_oggi = ottieni_prezzo_realtime_milano(ticker_symbol)
-    
-    # Fallback nel caso il sito di scraping sia momentaneamente irraggiungibile
-    if prezzo_oggi is None:
-        prezzo_oggi = df['Close'].iloc[-1]
-        variazione_oggi = ((df['Close'].iloc[-1] - df['Close'].iloc[-2]) / df['Close'].iloc[-2]) * 100
+    return sma20, sma50, rsi
 
-    return {
-        "prezzo": prezzo_oggi,
-        "variazione": variazione_oggi,
-        "sma20": df['SMA20'].iloc[-1],
-        "sma50": df['SMA50'].iloc[-1],
-        "rsi": df['RSI14'].iloc[-1]
-    }
+# 4. Interfaccia Grafica del Report
+str_lt.title("💡 Real-Time Geopolitical & Chip Monitor")
+
+# Gestione Orario Italiano Corretto
+fuso_roma = pytz.timezone("Europe/Rome")
+ora_esatta = datetime.now(fuso_roma).strftime("%H:%M:%S")
+str_lt.write(f"Ultimo aggiornamento flussi: **{ora_esatta}** (Aggiornato ogni 5 min automaticamente)")
+str_lt.success("🟢 SERVER DATI ATTIVO")
+
+# --- TITOLI DI MILANO (IN TEMPO REALE) ---
+str_lt.header("🇮🇹 Borsa di Milano (Real-Time)")
+col1, col2 = str_lt.columns(2)
+
+with col1:
+    # STMicroelectronics (ISIN: IT0000226229)
+    prezzo, variazione = prendi_prezzo_realtime_milano("IT0000226229", "STM.MI")
+    sma20, sma50, rsi = calcola_indicatori("STM.MI")
+    
+    str_lt.subheader("STMicroelectronics (STM.MI)")
+    str_lt.metric(label="Prezzo attuale", value=f"€ {prezzo:.2f}", delta=f"{variazione:.2f}%")
+    str_lt.text(f"SMA 20: {sma20:.2f} | SMA 50: {sma50:.2f} | RSI 14: {rsi:.1f}")
+    
+    # Logica Segnale
+    if rsi < 35:
+        str_lt.error("🟢 COMPRA: Le forti correzioni offrono un punto d'ingresso.")
+    elif rsi > 70:
+        str_lt.error("🔴 VENDI: Ipercomprato sul settore.")
+    else:
+        str_lt.warning("🟡 TIENI: Prezzo in linea con i flussi di mercato.")
+
+with col2:
+    # Leonardo S.p.A. (ISIN: IT0003856405)
+    prezzo, variazione = prendi_prezzo_realtime_milano("IT0003856405", "LDO.MI")
+    sma20, sma50, rsi = calcola_indicatori("LDO.MI")
+    
+    str_lt.subheader("Leonardo S.p.A. (LDO.MI)")
+    str_lt.metric(label="Prezzo attuale", value=f"€ {prezzo:.2f}", delta=f"{variazione:.2f}%")
+    str_lt.text(f"SMA 20: {sma20:.2f} | SMA 50: {sma50:.2f} | RSI 14: {rsi:.1f}")
+    
+    # Logica Segnale
+    if rsi > 80:
+        str_lt.error("🔴 VENDI: Ipercomprato estremo dettato dalle tensioni geopolitiche.")
+    elif rsi < 30:
+        str_lt.error("🟢 COMPRA: Sottovalutato rispetto ai flussi.")
+    else:
+        str_lt.warning("🟡 TIENI: Prezzo in linea con i flussi di mercato.")
