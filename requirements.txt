@@ -1,5 +1,1 @@
-streamlit
-yfinance
-pandas
-pytz
-streamlit-autorefresh
+sbloccami
