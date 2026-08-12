@@ -12,46 +12,37 @@ st.set_page_config(page_title="Monitor Robotizzato Chips V13", page_icon="🤖",
 # Refresh automatico ogni 60 secondi
 st_autorefresh(interval=60000, key="global_auto_robot_v13")
 
-# Configurazione di una sessione di richiesta per evitare i blocchi IP di Yahoo Finance su Hugging Face
-# Inseriamo un User-Agent per simulare una richiesta da un browser reale
+# SESSIONE ANTI-BLOCCO: Evita che l'IP di Hugging Face venga rifiutato da Yahoo Finance
 session = requests.Session()
 session.headers.update({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 })
 
 def prendi_prezzo_live(ticker_simbolo):
-    """Recupera la quotazione istantanea usando la sessione anti-blocco"""
+    """Recupera la quotazione istantanea sul mercato senza ritardi strutturali"""
     try:
-        # Passiamo la sessione protetta a yfinance
         t = yf.Ticker(ticker_simbolo, session=session)
-        
-        # Scarichiamo i dati dell'ultimo giorno per estrarre l'ultimo prezzo disponibile
         df_oggi = t.history(period="1d", interval="1m")
-        
         if not df_oggi.empty:
             prezzo_attuale = float(df_oggi['Close'].iloc[-1])
-            # Cerchiamo di prendere la chiusura precedente in modo sicuro
             try:
-                chiusura_ieri = t.info.get('previousClose', df_oggi['Close'].iloc[0])
+                chiusura_ieri = t.info.get('previousClose', df_oggi['Close'].iloc[-1])
             except:
                 chiusura_ieri = df_oggi['Close'].iloc[0]
-                
             variazione = ((prezzo_attuale - chiusura_ieri) / chiusura_ieri) * 100
             return prezzo_attuale, variazione
         else:
-            # Fallback se il dataframe al minuto è vuoto (es. a mercati chiusi)
             info = t.info
             p = info.get('currentPrice', info.get('regularMarketPrice', 0.0))
             v = info.get('regularMarketChangePercent', 0.0)
             if 0 < v < 1:  
                 v = v * 100
             return p, v
-    except Exception as e:
-        # In caso di errore totale restituisce un valore fittizio o l'ultimo noto invece di 0
+    except:
         return 0.0, 0.0
 
 def analizza_notizie_geopolitiche():
-    """Scansiona i feed con sessione protetta per evitare blocchi captcha"""
+    """Scansiona i feed USA/Asia di Yahoo Finance alla ricerca di dazi o tensioni economici"""
     parole_crisi_chips = [
         "tariff", "sanction", "export ban", "china", "taiwan", "restriction", 
         "trade war", "chips act", "white house", "biden", "trump", "beijing"
@@ -74,7 +65,7 @@ def analizza_notizie_geopolitiche():
                     
                     if any(p in titolo for p in parole_crisi_chips):
                         score_chips -= 15
-                        if n.get('title') not in [x.get('title') for x in notizie_rilevate if 'title' in x]:
+                        if n.get('title') not in [x.get('testo') for x in notizie_rilevate]:
                             notizie_rilevate.append({
                                 "testo": f"⚠️ **{fonte}**: [{n.get('title')}]({link})",
                                 "tipo": "chips"
@@ -82,7 +73,7 @@ def analizza_notizie_geopolitiche():
                     
                     if any(p in titolo for p in parole_difesa):
                         score_difesa += 15
-                        if n.get('title') not in [x.get('title') for x in notizie_rilevate if 'title' in x]:
+                        if n.get('title') not in [x.get('testo') for x in notizie_rilevate]:
                             notizie_rilevate.append({
                                 "testo": f"🪖 **{fonte}**: [{n.get('title')}]({link})",
                                 "tipo": "difesa"
@@ -95,12 +86,16 @@ def analizza_notizie_geopolitiche():
 # --- INTERFACCIA CRUSCOTTO ---
 st.title("🤖 Real-Time Automated Chips & Geopolitical Monitor")
 
-# Gestione dinamica dell'orario senza blocco della cache
+# Rilevamento dinamico dell'ora ad ogni ciclo, senza blocchi di cache
 fuso_roma = pytz.timezone("Europe/Rome")
-ora_esatta = datetime.now(fuso_roma).strftime("%d/%m/%Y - %H:%M:%S")
+ora_esatta = datetime.now(fuso_roma).strftime("%H:%M:%S")
+data_esatta = datetime.now(fuso_roma).strftime("%d/%m/%Y")
 
-# Usiamo un box informativo per mostrare chiaramente il timestamp di refresh
-st.info(f"🔄 **Ultimo aggiornamento automatico dei dati:** {ora_esatta} (Ora di Roma)")
+st.info(f"🔄 **Ultimo aggiornamento automatico AI:** {data_esatta} - **{ora_esatta}** (Sincronizzato Live)")
+
+# Pulsante manuale nel caso in cui tu voglia forzare il caricamento istantaneo
+if st.button("🔄 Forza Rinfresco Dati"):
+    st.rerun()
 
 # ================= SIDEBAR: MONITOR NOTIZIE AUTOMATICO =================
 peso_chips, peso_difesa, lista_notizie = analizza_notizie_geopolitiche()
@@ -110,7 +105,7 @@ st.sidebar.write("L'algoritmo scansiona i feed di Yahoo Finance.")
 
 if lista_notizie:
     if len(lista_notizie) >= 3:
-        st.sidebar.error("🚨 ALERT: Rilevato forte accumulo di tensioni macroeconomiche!")
+        st.sidebar.error("🚨 ALERT: Rilevato forte accumulo di notizie macroeconomiche/tensioni!")
     else:
         st.sidebar.warning("⚠️ ATTENZIONE: Rilevate notizie geopolitiche di rilievo.")
         
@@ -118,7 +113,7 @@ if lista_notizie:
     for noti in lista_notizie[:5]:
         st.sidebar.markdown(noti["testo"])
 else:
-    st.sidebar.success("🟢 Flussi geopolitici stabili. Nessun dazio o escalation rilevata nelle ultime ore.")
+    st.sidebar.success("🟢 Flussi geopolitici stabili. Nessun dazio o escalation rilevata nei feed attuali.")
 
 # ================= 1. I COLOSSI MONDIALI (USA & ASIA) =================
 st.header("🇺🇸🌏 Driver Globali dei Semiconduttori")
@@ -141,7 +136,7 @@ with giap3:
     st.metric(label="Prezzo attuale", value=f"$ {p_asml:.2f}", delta=f"{v_asml:.2f}%")
 
 indice_globale = (v_nvda + v_tsm + v_asml) / 3
-st.write(f"📊 **Spinta Globale del Comparto:** {indice_globale:.2f}%")
+st.write(f"📊 **Spinta Globale del Comparto:** Mediamente i colossi si muovono del **{indice_globale:.2f}%**.")
 
 st.markdown("---")
 
