@@ -10,50 +10,49 @@ import requests
 st.set_page_config(page_title="Monitor Robotizzato Chips V13", page_icon="🤖", layout="wide")
 
 # Refresh automatico ogni 60 secondi
-st_autorefresh(interval=60000, key="global_auto_robot_v15")
+st_autorefresh(interval=60000, key="global_auto_robot_v16")
 
-# Sessione protetta anti-blocco per ingannare i server di Yahoo
+# Sessione di richiesta con intestazioni browser standard
 session = requests.Session()
-session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.5'
-})
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'application/json',
+    'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8'
+}
+session.headers.update(headers)
 
 def prendi_prezzo_live(ticker_simbolo):
-    """Recupera la quotazione usando strategie multiple per aggirare i blocchi IP"""
+    """Recupera la quotazione usando l'endpoint JSON diretto per bypassare i blocchi cloud"""
     try:
-        t = yf.Ticker(ticker_simbolo, session=session)
+        # STRATEGIA DIRETTISSIMA: Interroga l'API JSON nascosta di Yahoo (molto più difficile da bloccare)
+        url = f"https://yahoo.com{ticker_simbolo}?interval=1d&range=2d"
+        risposta = session.get(url, timeout=5)
         
-        # STRATEGIA 1: Scarichiamo solo l'ultimo giorno con intervallo ampio (più difficile da bloccare)
-        df_oggi = t.history(period="5d", interval="1d")
-        
-        if not df_oggi.empty:
-            prezzo_attuale = float(df_oggi['Close'].iloc[-1])
-            chiusura_ieri = float(df_oggi['Close'].iloc[-2]) if len(df_oggi) > 1 else prezzo_attuale
+        if risposta.status_code == 200:
+            dati = risposta.json()
+            risultato = dati['chart']['result'][0]
+            prezzo_attuale = float(risultato['meta']['regularMarketPrice'])
+            chiusura_ieri = float(risultato['meta']['chartPreviousClose'])
+            
             variazione = ((prezzo_attuale - chiusura_ieri) / chiusura_ieri) * 100
             return prezzo_attuale, variazione
-        
-        # STRATEGIA 2: Fallback sui dati veloci FastInfo se la history viene bloccata
-        try:
-            p = t.fast_info['last_price']
-            v = t.fast_info['regular_market_previous_close']
-            var = ((p - v) / v) * 100 if v else 0.0
-            if p > 0:
-                return p, var
-        except:
-            pass
-            
-        # STRATEGIA 3: Estrazione dal dizionario info classico
-        info = t.info
-        p = info.get('currentPrice', info.get('regularMarketPrice', 0.0))
-        v = info.get('regularMarketChangePercent', 0.0)
-        if 0 < v < 1:  
-            v = v * 100
-        return p, v
     except:
-        # Se fallisce tutto, restituisce valori di errore visibili anziché 0 statico
-        return 1.0, 0.0
+        pass
+
+    # STRATEGIA 2: Fallback su yfinance classico se il JSON diretto fallisce
+    try:
+        t = yf.Ticker(ticker_simbolo, session=session)
+        df_oggi = t.history(period="2d", interval="1d")
+        if not df_oggi.empty and len(df_oggi) >= 1:
+            p = float(df_oggi['Close'].iloc[-1])
+            c = float(df_oggi['Close'].iloc[-2]) if len(df_oggi) > 1 else p
+            v = ((p - c) / c) * 100
+            return p, v
+    except:
+        pass
+        
+    # Se tutto fallisce, mostra un valore identificativo di errore (999.0) per capire il blocco
+    return 999.0, 0.0
 
 def analizza_notizie_geopolitiche():
     """Scansiona i feed senza mandare in blocco l'applicazione"""
@@ -64,11 +63,12 @@ def analizza_notizie_geopolitiche():
     notizie_rilevate = []
     
     try:
+        # Tentativo leggero di lettura notizie
         for t_simbolo in ["TSM", "NVDA"]:
             ticker = yf.Ticker(t_simbolo, session=session)
             notizie = ticker.news
             if notizie:
-                for n in notizie[:3]:
+                for n in notizie[:2]:
                     titolo = n.get('title', '').lower()
                     link = n.get('link', '#')
                     fonte = n.get('publisher', 'Yahoo')
@@ -151,5 +151,5 @@ with col2:
     score_ldo = v_ldo + peso_difesa
     st.write(f"Rating: **{score_ldo:.2f}**")
     if score_ldo > 8 or peso_difesa > 0: st.success("🟢 COMPRA")
-    elif score_ldo < -4: st.error("🔴 VENDI")
+    elif score_ldo < -4: mergers = st.error("🔴 VENDI")
     else: st.warning("🟡 TIENI")
