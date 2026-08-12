@@ -9,10 +9,10 @@ import requests
 # 1. Configurazione della pagina (Deve essere la prima istruzione Streamlit)
 st.set_page_config(page_title="Monitor Robotizzato Chips V13", page_icon="🤖", layout="wide")
 
-# Refresh automatico ogni 60 secondi
-st_autorefresh(interval=60000, key="global_auto_robot_v13")
+# Refresh automatico ogni 60 secondi con una chiave nuova per azzerare i vecchi blocchi
+st_autorefresh(interval=60000, key="global_auto_robot_v14")
 
-# SESSIONE ANTI-BLOCCO: Evita che l'IP di Hugging Face venga rifiutato da Yahoo Finance
+# SESSIONE ANTI-BLOCCO: Evita che l'IP del server venga rifiutato da Yahoo Finance
 session = requests.Session()
 session.headers.update({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -28,7 +28,7 @@ def prendi_prezzo_live(ticker_simbolo):
             try:
                 chiusura_ieri = t.info.get('previousClose', df_oggi['Close'].iloc[-1])
             except:
-                chiusura_ieri = df_oggi['Close'].iloc[0]
+                chiusura_ieri = df_oggi['Close'].iloc
             variazione = ((prezzo_attuale - chiusura_ieri) / chiusura_ieri) * 100
             return prezzo_attuale, variazione
         else:
