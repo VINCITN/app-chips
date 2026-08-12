@@ -10,7 +10,7 @@ import requests
 st.set_page_config(page_title="Monitor Robotizzato Chips V13", page_icon="🤖", layout="wide")
 
 # Refresh automatico ogni 60 secondi
-st_autorefresh(interval=60000, key="global_auto_robot_v17")
+st_autorefresh(interval=60000, key="global_auto_robot_v18")
 
 # Sessione di richiesta con intestazioni browser standard
 session = requests.Session()
@@ -21,6 +21,18 @@ headers = {
 }
 session.headers.update(headers)
 
+def prendi_cambio_eurusd():
+    """Recupera il tasso di cambio attuale EUR/USD per la conversione monetaria"""
+    try:
+        url = "https://yahoo.com"
+        risposta = session.get(url, timeout=5)
+        if risposta.status_code == 200:
+            dati = risposta.json()
+            return float(dati['chart']['result'][0]['meta']['regularMarketPrice'])
+    except:
+        pass
+    return 1.09  # Valore di fallback stimato se l'API del cambio è temporaneamente congestionata
+
 def prendi_prezzo_live(ticker_simbolo):
     """Recupera la quotazione usando l'endpoint JSON diretto per bypassare i blocchi cloud"""
     try:
@@ -29,7 +41,7 @@ def prendi_prezzo_live(ticker_simbolo):
         
         if risposta.status_code == 200:
             dati = risposta.json()
-            risultato = dati['chart']['result']
+            risultato = dati['chart']['result'][0]
             prezzo_attuale = float(risultato['meta']['regularMarketPrice'])
             chiusura_ieri = float(risultato['meta']['chartPreviousClose'])
             
@@ -49,7 +61,7 @@ def prendi_prezzo_live(ticker_simbolo):
     except:
         pass
         
-    return 999.0, 0.0
+    return 0.0, 0.0
 
 def analizza_notizie_geopolitiche():
     """Scansiona i feed senza mandare in blocco l'applicazione"""
@@ -92,6 +104,9 @@ st.info(f"🔄 **Ultimo aggiornamento automatico AI:** {data_esatta} - **{ora_es
 if st.button("🔄 Forza Rinfresco Dati"):
     st.rerun()
 
+# Recupero del tasso di cambio attuale per convertire i titoli USA in EUR quando necessario
+tasso_cambio = prendi_cambio_eurusd()
+
 # ================= SIDEBAR =================
 peso_chips, peso_difesa, lista_notizie = analizza_notizie_geopolitiche()
 st.sidebar.header("📰 Analizzatore Live USA & Asia")
@@ -131,10 +146,12 @@ st.header("🇮🇹 Quotazioni Live Borsa di Milano")
 col1, col2 = st.columns(2)
 
 with col1:
-    # Usiamo "STM" invece di "STM.MI" per evitare il blocco del server di Milano a mercati chiusi
-    p_stm, v_stm = prendi_prezzo_live("STM")
+    # Usiamo il ticker globale "STM" convertendolo in Euro dividendo per il tasso di cambio
+    p_stm_usd, v_stm = prendi_prezzo_live("STM")
+    p_stm_eur = p_stm_usd / tasso_cambio if tasso_cambio else p_stm_usd
+    
     st.subheader("STMicroelectronics (STM)")
-    st.metric(label="Prezzo Live (Rif. USA)", value=f"$ {p_stm:.2f}", delta=f"{v_stm:.2f}%")
+    st.metric(label="Prezzo Live Milano (Convertito)", value=f"€ {p_stm_eur:.2f}", delta=f"{v_stm:.2f}%")
     score_stm = v_stm + (indice_globale * 0.6) + peso_chips
     st.write(f"Rating: **{score_stm:.2f}**")
     if score_stm < -5: st.error("🔴 EVITARE / VENDI")
