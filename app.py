@@ -10,7 +10,7 @@ import requests
 st.set_page_config(page_title="Monitor Robotizzato Chips V13", page_icon="🤖", layout="wide")
 
 # Refresh automatico ogni 60 secondi
-st_autorefresh(interval=60000, key="global_auto_robot_v16")
+st_autorefresh(interval=60000, key="global_auto_robot_v17")
 
 # Sessione di richiesta con intestazioni browser standard
 session = requests.Session()
@@ -24,13 +24,12 @@ session.headers.update(headers)
 def prendi_prezzo_live(ticker_simbolo):
     """Recupera la quotazione usando l'endpoint JSON diretto per bypassare i blocchi cloud"""
     try:
-        # STRATEGIA DIRETTISSIMA: Interroga l'API JSON nascosta di Yahoo (molto più difficile da bloccare)
         url = f"https://yahoo.com{ticker_simbolo}?interval=1d&range=2d"
         risposta = session.get(url, timeout=5)
         
         if risposta.status_code == 200:
             dati = risposta.json()
-            risultato = dati['chart']['result'][0]
+            risultato = dati['chart']['result']
             prezzo_attuale = float(risultato['meta']['regularMarketPrice'])
             chiusura_ieri = float(risultato['meta']['chartPreviousClose'])
             
@@ -39,7 +38,6 @@ def prendi_prezzo_live(ticker_simbolo):
     except:
         pass
 
-    # STRATEGIA 2: Fallback su yfinance classico se il JSON diretto fallisce
     try:
         t = yf.Ticker(ticker_simbolo, session=session)
         df_oggi = t.history(period="2d", interval="1d")
@@ -51,7 +49,6 @@ def prendi_prezzo_live(ticker_simbolo):
     except:
         pass
         
-    # Se tutto fallisce, mostra un valore identificativo di errore (999.0) per capire il blocco
     return 999.0, 0.0
 
 def analizza_notizie_geopolitiche():
@@ -63,7 +60,6 @@ def analizza_notizie_geopolitiche():
     notizie_rilevate = []
     
     try:
-        # Tentativo leggero di lettura notizie
         for t_simbolo in ["TSM", "NVDA"]:
             ticker = yf.Ticker(t_simbolo, session=session)
             notizie = ticker.news
@@ -135,9 +131,10 @@ st.header("🇮🇹 Quotazioni Live Borsa di Milano")
 col1, col2 = st.columns(2)
 
 with col1:
-    p_stm, v_stm = prendi_prezzo_live("STM.MI")
-    st.subheader("STMicroelectronics (STM.MI)")
-    st.metric(label="Prezzo Live Milano", value=f"€ {p_stm:.2f}", delta=f"{v_stm:.2f}%")
+    # Usiamo "STM" invece di "STM.MI" per evitare il blocco del server di Milano a mercati chiusi
+    p_stm, v_stm = prendi_prezzo_live("STM")
+    st.subheader("STMicroelectronics (STM)")
+    st.metric(label="Prezzo Live (Rif. USA)", value=f"$ {p_stm:.2f}", delta=f"{v_stm:.2f}%")
     score_stm = v_stm + (indice_globale * 0.6) + peso_chips
     st.write(f"Rating: **{score_stm:.2f}**")
     if score_stm < -5: st.error("🔴 EVITARE / VENDI")
@@ -151,5 +148,5 @@ with col2:
     score_ldo = v_ldo + peso_difesa
     st.write(f"Rating: **{score_ldo:.2f}**")
     if score_ldo > 8 or peso_difesa > 0: st.success("🟢 COMPRA")
-    elif score_ldo < -4: mergers = st.error("🔴 VENDI")
+    elif score_ldo < -4: st.error("🔴 VENDI")
     else: st.warning("🟡 TIENI")
