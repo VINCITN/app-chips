@@ -5,150 +5,115 @@ from datetime import datetime
 import pytz
 from streamlit_autorefresh import st_autorefresh
 import requests
+import time
+import random
 
-# 1. Configurazione della pagina
-st.set_page_config(page_title="Monitor Robotizzato Chips V13", page_icon="🤖", layout="wide")
+# 1. Configurazione della pagina ottimizzata per l'integrazione Hugging Face
+st.set_page_config(page_title="Monitor Live Borsa Milano", page_icon="🏛️", layout="wide")
 
-# Refresh automatico ogni 60 secondi
-st_autorefresh(interval=60000, key="global_auto_robot_v18")
+# Autorefresh di sicurezza impostato a 45 secondi (30 secondi a volte è troppo aggressivo e causa blocchi)
+st_autorefresh(interval=45000, key="realtime_milano_refresh")
 
-# Sessione di richiesta con intestazioni browser standard
-session = requests.Session()
-headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8'
-}
-session.headers.update(headers)
+def genera_sessione_anti_blocco():
+    """Crea una sessione con intestazioni browser realistiche e variabili per bypassare i filtri"""
+    session = requests.Session()
+    
+    # Lista di User-Agent moderni per non presentarsi sempre con lo stesso identificativo
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+    ]
+    
+    headers = {
+        'User-Agent': random.choice(user_agents),
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Origin': 'https://yahoo.com',
+        'Referer': 'https://yahoo.com/'
+    }
+    session.headers.update(headers)
+    return session
 
-def prendi_prezzo_live(ticker_simbolo):
-    """Recupera la quotazione robusta per i mercati italiani ed esteri eliminando gli zeri"""
+def interroga_borsa_realtime(ticker_simbolo, sessione):
+    """Interroga direttamente i server finanziari bypassando la cache interna"""
     try:
-        t = yf.Ticker(ticker_simbolo, session=session)
+        t = yf.Ticker(ticker_simbolo, session=sessione)
         
-        # PASSO 1: Proviamo a scaricare i dati intraday recenti (più affidabili di fast_info su Milano)
-        df_intraday = t.history(period="1d", interval="1m")
-        if not df_intraday.empty:
-            prezzo_attuale = float(df_intraday['Close'].iloc[-1])
-            
-            # Recuperiamo la chiusura di ieri per calcolare la variazione percentuale reale
-            df_storico = t.history(period="2d", interval="1d")
-            chiusura_ieri = float(df_storico['Close'].iloc[-2]) if len(df_storico) > 1 else prezzo_attuale
-            
-            if prezzo_attuale > 0:
-                variazione = ((prezzo_attuale - chiusura_ieri) / chiusura_ieri) * 100
-                return prezzo_attuale, variazione
-                
-        # PASSO 2: Sottosistema di backup se l'intraday è vuoto (es. a mercati chiusi di notte o weekend)
-        df_storico = t.history(period="2d", interval="1d")
-        if not df_storico.empty:
-            prezzo_attuale = float(df_storico['Close'].iloc[-1])
-            chiusura_ieri = float(df_storico['Close'].iloc[-2]) if len(df_storico) > 1 else prezzo_attuale
-            if prezzo_attuale > 0:
-                variazione = ((prezzo_attuale - chiusura_ieri) / chiusura_ieri) * 100
-                return prezzo_attuale, variazione
-    except Exception as e:
+        # Chiamata pulita senza memorizzazione nella cache per avere l'ultimo secondo reale
+        df_live = t.history(period="1d", interval="1m", cache=False)
+        df_ieri = t.history(period="2d", interval="1d", cache=False)
+        
+        if not df_live.empty and len(df_ieri) >= 1:
+            prezzo_corrente = float(df_live['Close'].iloc[-1])
+            chiusura_precedente = float(df_ieri['Close'].iloc[-2]) if len(df_ieri) > 1 else float(df_ieri['Close'].iloc)
+            variazione_percentuale = ((prezzo_corrente - chiusura_precedente) / chiusura_precedente) * 100
+            return prezzo_corrente, variazione_percentuale
+    except Exception:
         pass
-        
     return 0.0, 0.0
 
-def analizza_notizie_geopolitiche():
-    """Scansiona i feed senza mandare in blocco l'applicazione"""
-    parole_crisi_chips = ["tariff", "sanction", "export ban", "china", "taiwan", "restriction", "trade war"]
-    parole_difesa = ["nato", "military", "defense", "pentagon", "missile", "war", "escalation"]
-    
-    score_chips, score_difesa = 0, 0
-    notizie_rilevate = []
-    
-    try:
-        for t_simbolo in ["TSM", "NVDA"]:
-            ticker = yf.Ticker(t_simbolo, session=session)
-            notizie = ticker.news
-            if notizie:
-                for n in notizie[:2]:
-                    titolo = n.get('title', '').lower()
-                    link = n.get('link', '#')
-                    fonte = n.get('publisher', 'Yahoo')
-                    
-                    if any(p in titolo for p in parole_crisi_chips):
-                        score_chips -= 15
-                        notizie_rilevate.append({"testo": f"⚠️ **{fonte}**: [{n.get('title')}]({link})"})
-                    
-                    if any(p in titolo for p in parole_difesa):
-                        score_difesa += 15
-                        notizie_rilevate.append({"testo": f"🪖 **{fonte}**: [{n.get('title')}]({link})"})
-    except:
-        pass
-    return score_chips, score_difesa, notizie_rilevate
+# ==========================================
+# INTERFACCIA APPLICAZIONE
+# ==========================================
 
-# --- INTERFACCIA CRUSCOTTO ---
-st.title("🤖 Real-Time Automated Chips & Geopolitical Monitor")
+ora_attuale = datetime.now(pytz.timezone('Europe/Rome')).strftime('%H:%M:%S')
+st.title("🏛️ Monitor Istantaneo Piazza Affari")
 
-fuso_roma = pytz.timezone("Europe/Rome")
-ora_esatta = datetime.now(fuso_roma).strftime("%H:%M:%S")
-data_esatta = datetime.now(fuso_roma).strftime("%d/%m/%Y")
-
-st.info(f"🔄 **Ultimo aggiornamento automatico AI:** {data_esatta} - **{ora_esatta}** (Sincronizzato Live Milano/Global)")
-
-if st.button("🔄 Forza Rinfresco Dati"):
+# Pulsante manuale
+if st.button("🔄 Forza Aggiornamento Book"):
     st.rerun()
 
-# ================= SIDEBAR =================
-peso_chips, peso_difesa, lista_notizie = analizza_notizie_geopolitiche()
-st.sidebar.header("📰 Analizzatore Live USA & Asia")
-
-if lista_notizie:
-    st.sidebar.warning("⚠️ ATTENZIONE: Rilevate notizie geopolitiche.")
-    for noti in lista_notizie[:5]:
-        st.sidebar.markdown(noti["testo"])
-else:
-    st.sidebar.success("🟢 Flussi geopolitici stabili. Nessun dazio o escalation rilevata.")
-
-# ================= 1. I COLOSSI MONDIALI =================
-st.header("🇺🇸🌏 Driver Globali dei Semiconduttori")
-giap1, giap2, giap3 = st.columns(3)
-
-with giap1:
-    p_nvda, v_nvda = prendi_prezzo_live("NVDA")
-    st.subheader("NVIDIA Corp (USA)")
-    st.metric(label="Prezzo attuale", value=f"$ {p_nvda:.2f}", delta=f"{v_nvda:.2f}%")
-
-with giap2:
-    p_tsm, v_tsm = prendi_prezzo_live("TSM")
-    st.subheader("TSMC (Taiwan)")
-    st.metric(label="Prezzo attuale", value=f"$ {p_tsm:.2f}", delta=f"{v_tsm:.2f}%")
-
-with giap3:
-    p_asml, v_asml = prendi_prezzo_live("ASML")
-    st.subheader("ASML Holding (Olanda)")
-    st.metric(label="Prezzo attuale", value=f"$ {p_asml:.2f}", delta=f"{v_asml:.2f}%")
-
-indice_globale = (v_nvda + v_tsm + v_asml) / 3
-st.write(f"📊 **Spinta Globale del Comparto:** {indice_globale:.2f}%")
+st.caption(f"Ultimo pacchetto dati elaborato da Milano alle ore: **{ora_attuale}**")
 st.markdown("---")
 
-# ================= 2. BORSA DI MILANO =================
-st.header("🇮🇹 Quotazioni Live Borsa di Milano")
-col1, col2 = st.columns(2)
+# Generiamo la sessione fresca per questa richiesta
+sessione_attiva = genera_sessione_anti_blocco()
 
-with col1:
-    # Utilizziamo STMMI.MI o STM.MI - entrambi validi, ma STMMI.MI a volte è più stabile su Yahoo
-    p_stm_eur, v_stm = prendi_prezzo_live("STMMI.MI")
-    
-    st.subheader("STMicroelectronics (STM.MI)")
-    st.metric(label="Prezzo Live Milano", value=f"€ {p_stm_eur:.2f}", delta=f"{v_stm:.2f}%")
-    score_stm = v_stm + (indice_globale * 0.6) + peso_chips
-    st.write(f"Rating: **{score_stm:.2f}**")
-    if score_stm < -5: st.error("🔴 EVITARE / VENDI")
-    elif score_stm > 2.5: st.success("🟢 COMPRA")
-    else: st.warning("🟡 TIENI")
+# Interrogazione di STM
+prezzo_stm, var_stm = interroga_borsa_realtime("STMMI.MI", sessione_attiva)
 
-with col2:
-    p_ldo, v_ldo = prendi_prezzo_live("LDO.MI")
-    st.subheader("Leonardo S.p.A. (LDO.MI)")
-    st.metric(label="Prezzo Live Milano", value=f"€ {p_ldo:.2f}", delta=f"{v_ldo:.2f}%")
-    score_ldo = v_ldo + peso_difesa
-    st.write(f"Rating: **{score_ldo:.2f}**")
-    if score_ldo > 8 or peso_difesa > 0: st.success("🟢 COMPRA")
-    elif score_ldo < -4: st.error("🔴 VENDI")
-    else: st.warning("🟡 TIENI")
+# 🛑 PAUSA TECNICA ANTI-BLOCCO: Aspettiamo un secondo prima della seconda richiesta
+# Questo evita che il server di Yahoo veda due richieste identiche nello stesso millisecondo dallo stesso IP
+time.sleep(1.2)
+
+# Interrogazione di Leonardo
+prezzo_ldo, var_ldo = interroga_borsa_realtime("LDO.MI", sessione_attiva)
+
+# Impostazione soglia allarme
+SOGLIA_ALLARME = 3.5
+
+# Creazione Layout colonne
+col_stm, col_ldo = st.columns(2)
+
+with col_stm:
+    st.header("🇮🇹 STMicroelectronics")
+    if prezzo_stm > 0:
+        if abs(var_stm) >= SOGLIA_ALLARME:
+            st.error(f"⚠️ **ALLARME VOLATILITÀ CRITICA SU STM!** Oscillazione: {var_stm:+.2f}%")
+        
+        st.metric(label="Quotazione Real-Time", value=f"{prezzo_stm:.3f} €", delta=f"{var_stm:+.2f}%")
+        if var_stm > 0:
+            st.success(f"📈 Guadagno del **{var_stm:+.2f}%** rispetto a ieri.")
+        elif var_stm < 0:
+            st.error(f"📉 Perdita del **{var_stm:+.2f}%** rispetto a ieri.")
+        else:
+            st.warning("↕️ Titolo Invariato (0.00%)")
+    else:
+        st.info("🔄 Tentativo di riconnessione al server di Milano in corso...")
+
+with col_ldo:
+    st.header("🇮🇹 Leonardo SpA")
+    if prezzo_ldo > 0:
+        if abs(var_ldo) >= SOGLIA_ALLARME:
+            st.error(f"⚠️ **ALLARME VOLATILITÀ CRITICA SU LEONARDO!** Oscillazione: {var_ldo:+.2f}%")
+        
+        st.metric(label="Quotazione Real-Time", value=f"{prezzo_ldo:.3f} €", delta=f"{var_ldo:+.2f}%")
+        if var_ldo > 0:
+            st.success(f"📈 Guadagno del **{var_ldo:+.2f}%** rispetto a ieri.")
+        elif var_ldo < 0:
+            st.error(f"📉 Perdita del **{var_ldo:+.2f}%** rispetto a ieri.")
+        else:
+            st.warning("↕️ Titolo Invariato (0.00%)")
+    else:
+        st.info("🔄 Tentativo di riconnessione al server di Milano in corso...")
