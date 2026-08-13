@@ -21,41 +21,29 @@ headers = {
 }
 session.headers.update(headers)
 
-def prendi_cambio_eurusd():
-    """Recupera il tasso di cambio attuale EUR/USD per la conversione monetaria"""
-    try:
-        url = "https://yahoo.com"
-        risposta = session.get(url, timeout=5)
-        if risposta.status_code == 200:
-            dati = risposta.json()
-            return float(dati['chart']['result'][0]['meta']['regularMarketPrice'])
-    except:
-        pass
-    return 1.09  # Valore di fallback stimato se l'API del cambio è temporaneamente congestionata
-
 def prendi_prezzo_live(ticker_simbolo):
-    """Recupera la quotazione usando l'endpoint JSON diretto per bypassare i blocchi cloud"""
+    """Recupera la quotazione ufficiale in tempo reale/differito direttamente tramite yfinance fast_info"""
     try:
-        url = f"https://yahoo.com{ticker_simbolo}?interval=1d&range=2d"
-        risposta = session.get(url, timeout=5)
+        # yfinance fast_info è il metodo più rapido e non soffre dei blocchi degli URL custom
+        t = yf.Ticker(ticker_simbolo, session=session)
+        prezzo_attuale = float(t.fast_info['lastPrice'])
+        chiusura_ieri = float(t.fast_info['previousClose'])
         
-        if risposta.status_code == 200:
-            dati = risposta.json()
-            risultato = dati['chart']['result'][0]
-            prezzo_attuale = float(risultato['meta']['regularMarketPrice'])
-            chiusura_ieri = float(risultato['meta']['chartPreviousClose'])
-            
+        if prezzo_attuale and chiusura_ieri:
             variazione = ((prezzo_attuale - chiusura_ieri) / chiusura_ieri) * 100
             return prezzo_attuale, variazione
     except:
         pass
 
+    # Sistema di backup cronologico se fast_info fallisce
     try:
         t = yf.Ticker(ticker_simbolo, session=session)
-        df_oggi = t.history(period="2d", interval="1d")
-        if not df_oggi.empty and len(df_oggi) >= 1:
+        df_oggi = t.history(period="2d", interval="1m")
+        if not df_oggi.empty:
             p = float(df_oggi['Close'].iloc[-1])
-            c = float(df_oggi['Close'].iloc[-2]) if len(df_oggi) > 1 else p
+            # Se il mercato è appena aperto, cerca la chiusura precedente nel giorno prima
+            df_ieri = t.history(period="2d", interval="1d")
+            c = float(df_ieri['Close'].iloc[-2]) if len(df_ieri) > 1 else p
             v = ((p - c) / c) * 100
             return p, v
     except:
@@ -99,13 +87,10 @@ fuso_roma = pytz.timezone("Europe/Rome")
 ora_esatta = datetime.now(fuso_roma).strftime("%H:%M:%S")
 data_esatta = datetime.now(fuso_roma).strftime("%d/%m/%Y")
 
-st.info(f"🔄 **Ultimo aggiornamento automatico AI:** {data_esatta} - **{ora_esatta}** (Sincronizzato Live)")
+st.info(f"🔄 **Ultimo aggiornamento automatico AI:** {data_esatta} - **{ora_esatta}** (Sincronizzato Live Milano/Global)")
 
 if st.button("🔄 Forza Rinfresco Dati"):
     st.rerun()
-
-# Recupero del tasso di cambio attuale per convertire i titoli USA in EUR quando necessario
-tasso_cambio = prendi_cambio_eurusd()
 
 # ================= SIDEBAR =================
 peso_chips, peso_difesa, lista_notizie = analizza_notizie_geopolitiche()
@@ -146,12 +131,11 @@ st.header("🇮🇹 Quotazioni Live Borsa di Milano")
 col1, col2 = st.columns(2)
 
 with col1:
-    # Usiamo il ticker globale "STM" convertendolo in Euro dividendo per il tasso di cambio
-    p_stm_usd, v_stm = prendi_prezzo_live("STM")
-    p_stm_eur = p_stm_usd / tasso_cambio if tasso_cambio else p_stm_usd
+    # MODIFICA CHIAVE: Interroghiamo direttamente il mercato di Milano (STM.MI) nativo in Euro
+    p_stm_eur, v_stm = prendi_prezzo_live("STM.MI")
     
-    st.subheader("STMicroelectronics (STM)")
-    st.metric(label="Prezzo Live Milano (Convertito)", value=f"€ {p_stm_eur:.2f}", delta=f"{v_stm:.2f}%")
+    st.subheader("STMicroelectronics (STM.MI)")
+    st.metric(label="Prezzo Live Milano", value=f"€ {p_stm_eur:.2f}", delta=f"{v_stm:.2f}%")
     score_stm = v_stm + (indice_globale * 0.6) + peso_chips
     st.write(f"Rating: **{score_stm:.2f}**")
     if score_stm < -5: st.error("🔴 EVITARE / VENDI")
@@ -159,6 +143,7 @@ with col1:
     else: st.warning("🟡 TIENI")
 
 with col2:
+    # Usiamo il ticker standard per Leonardo su Milano
     p_ldo, v_ldo = prendi_prezzo_live("LDO.MI")
     st.subheader("Leonardo S.p.A. (LDO.MI)")
     st.metric(label="Prezzo Live Milano", value=f"€ {p_ldo:.2f}", delta=f"{v_ldo:.2f}%")
