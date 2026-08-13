@@ -1,5 +1,4 @@
-yfinance>=0.2.38
-pytz
+streamlit
+yfinance
 streamlit-autorefresh
 requests
-pandas
