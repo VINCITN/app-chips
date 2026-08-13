@@ -22,31 +22,32 @@ headers = {
 session.headers.update(headers)
 
 def prendi_prezzo_live(ticker_simbolo):
-    """Recupera la quotazione ufficiale in tempo reale/differito direttamente tramite yfinance fast_info"""
+    """Recupera la quotazione robusta per i mercati italiani ed esteri eliminando gli zeri"""
     try:
-        # yfinance fast_info è il metodo più rapido e non soffre dei blocchi degli URL custom
         t = yf.Ticker(ticker_simbolo, session=session)
-        prezzo_attuale = float(t.fast_info['lastPrice'])
-        chiusura_ieri = float(t.fast_info['previousClose'])
         
-        if prezzo_attuale and chiusura_ieri:
-            variazione = ((prezzo_attuale - chiusura_ieri) / chiusura_ieri) * 100
-            return prezzo_attuale, variazione
-    except:
-        pass
-
-    # Sistema di backup cronologico se fast_info fallisce
-    try:
-        t = yf.Ticker(ticker_simbolo, session=session)
-        df_oggi = t.history(period="2d", interval="1m")
-        if not df_oggi.empty:
-            p = float(df_oggi['Close'].iloc[-1])
-            # Se il mercato è appena aperto, cerca la chiusura precedente nel giorno prima
-            df_ieri = t.history(period="2d", interval="1d")
-            c = float(df_ieri['Close'].iloc[-2]) if len(df_ieri) > 1 else p
-            v = ((p - c) / c) * 100
-            return p, v
-    except:
+        # PASSO 1: Proviamo a scaricare i dati intraday recenti (più affidabili di fast_info su Milano)
+        df_intraday = t.history(period="1d", interval="1m")
+        if not df_intraday.empty:
+            prezzo_attuale = float(df_intraday['Close'].iloc[-1])
+            
+            # Recuperiamo la chiusura di ieri per calcolare la variazione percentuale reale
+            df_storico = t.history(period="2d", interval="1d")
+            chiusura_ieri = float(df_storico['Close'].iloc[-2]) if len(df_storico) > 1 else prezzo_attuale
+            
+            if prezzo_attuale > 0:
+                variazione = ((prezzo_attuale - chiusura_ieri) / chiusura_ieri) * 100
+                return prezzo_attuale, variazione
+                
+        # PASSO 2: Sottosistema di backup se l'intraday è vuoto (es. a mercati chiusi di notte o weekend)
+        df_storico = t.history(period="2d", interval="1d")
+        if not df_storico.empty:
+            prezzo_attuale = float(df_storico['Close'].iloc[-1])
+            chiusura_ieri = float(df_storico['Close'].iloc[-2]) if len(df_storico) > 1 else prezzo_attuale
+            if prezzo_attuale > 0:
+                variazione = ((prezzo_attuale - chiusura_ieri) / chiusura_ieri) * 100
+                return prezzo_attuale, variazione
+    except Exception as e:
         pass
         
     return 0.0, 0.0
@@ -131,8 +132,8 @@ st.header("🇮🇹 Quotazioni Live Borsa di Milano")
 col1, col2 = st.columns(2)
 
 with col1:
-    # MODIFICA CHIAVE: Interroghiamo direttamente il mercato di Milano (STM.MI) nativo in Euro
-    p_stm_eur, v_stm = prendi_prezzo_live("STM.MI")
+    # Utilizziamo STMMI.MI o STM.MI - entrambi validi, ma STMMI.MI a volte è più stabile su Yahoo
+    p_stm_eur, v_stm = prendi_prezzo_live("STMMI.MI")
     
     st.subheader("STMicroelectronics (STM.MI)")
     st.metric(label="Prezzo Live Milano", value=f"€ {p_stm_eur:.2f}", delta=f"{v_stm:.2f}%")
@@ -143,7 +144,6 @@ with col1:
     else: st.warning("🟡 TIENI")
 
 with col2:
-    # Usiamo il ticker standard per Leonardo su Milano
     p_ldo, v_ldo = prendi_prezzo_live("LDO.MI")
     st.subheader("Leonardo S.p.A. (LDO.MI)")
     st.metric(label="Prezzo Live Milano", value=f"€ {p_ldo:.2f}", delta=f"{v_ldo:.2f}%")
