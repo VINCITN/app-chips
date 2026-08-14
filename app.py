@@ -8,19 +8,17 @@ import time
 # 1. Configurazione della pagina Streamlit
 st.set_page_config(page_title="Monitor Real-Time Milano API", page_icon="🏛️", layout="wide")
 
-# Aggiornamento automatico dello schermo ogni 15 secondi (con API professionale possiamo scendere di frequenza)
+# Aggiornamento automatico dello schermo ogni 15 secondi
 st_autorefresh(interval=15000, key="api_milano_refresh")
 
 # =========================================================================
-# 🔑 INSERISCI QUI LA TUA CHIAVE API DI TWELVE DATA
+# 🔑 INSERISCI QUI LA TUA CHIAVE API DI TWELVE DATA (MANTENENDO LE VIRGOLETTE)
 # =========================================================================
-API_KEY = "08c87d06d1984672aa8b3b12fe70065c" 
-# Rimprovero di sicurezza: Sostituisci la stringa sopra con la tua chiave reale presa dal sito!
+API_KEY = "IL_TUO_CODICE_API_KEY_QUI" 
 # =========================================================================
 
 def interroga_twelvedata_realtime(ticker_api):
     """Interroga l'API professionale di Twelve Data per estrarre prezzo e variazione istantanei"""
-    # Se l'utente non ha ancora inserito la chiave corretta, interrompe per evitare crash
     if API_KEY == "IL_TUO_CODICE_API_KEY_QUI" or not API_KEY:
         return 0.0, 0.0
         
@@ -29,7 +27,7 @@ def interroga_twelvedata_realtime(ticker_api):
     try:
         risposta = requests.get(url, timeout=8).json()
         
-        # Twelve Data restituisce i valori pronti all'uso nel dizionario principale
+        # Estrazione e conversione dei dati restituiti dall'API
         prezzo_corrente = float(risposta.get('close', 0.0))
         variazione_percentuale = float(risposta.get('percent_change', 0.0))
         
@@ -53,16 +51,15 @@ st.markdown("---")
 
 # Controllo iniziale sulla chiave API per guidare l'utente nell'interfaccia
 if API_KEY == "IL_TUO_CODICE_API_KEY_QUI":
-    st.warning("⚠️ **Configurazione Richiesta**: Inserisci la tua API Key di Twelve Data all'interno del codice (riga 16) per attivare i dati in tempo reale al secondo.")
+    st.warning("⚠️ **Configurazione Richiesta**: Inserisci la tua API Key di Twelve Data all'interno del codice (riga 15) mantenendo le virgolette per attivare i dati.")
 else:
-    # Simboli ufficiali di Twelve Data per STM e Leonardo quotate a Milano (identificate dal suffisso .MI o STM)
-    # Nota: Twelve Data usa spesso il formato senza punto o con l'ID del mercato Euronext Milan
-    prezzo_stm, var_stm = interroga_twelvedata_realtime("STM")
+    # Richiesta dati con i suffissi ufficiali di Milano (:XMIL) per evitare il blocco del caricamento
+    prezzo_stm, var_stm = interroga_twelvedata_realtime("STM:XMIL")
     
-    # Pausa tecnica minima di rispetto dei canali server
-    time.sleep(0.5)
+    # Pausa tecnica di sicurezza per rispettare i limiti del canale
+    time.sleep(1.0)
     
-    prezzo_ldo, var_ldo = interroga_twelvedata_realtime("LDO")
+    prezzo_ldo, var_ldo = interroga_twelvedata_realtime("LDO:XMIL")
 
     # Soglia limite percentuale per l'allarme visivo (3.5%)
     SOGLIA_ALLARME = 3.5
