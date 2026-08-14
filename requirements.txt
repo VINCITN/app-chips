@@ -1,4 +1,5 @@
 streamlit
-yfinance
 streamlit-autorefresh
+requests
+beautifulsoup4
 pandas
