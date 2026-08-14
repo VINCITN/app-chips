@@ -4,52 +4,30 @@ import pandas as pd
 from datetime import datetime
 import pytz
 from streamlit_autorefresh import st_autorefresh
-import requests
 import time
-import random
 
 # 1. Configurazione della pagina ottimizzata per Hugging Face Spaces
 st.set_page_config(page_title="Monitor Live Borsa Milano", page_icon="🏛️", layout="wide")
 
-# Autorefresh automatico dello schermo ogni 45 secondi (evita blocchi da richieste troppo frequenti)
+# Autorefresh automatico dello schermo ogni 45 secondi
 st_autorefresh(interval=45000, key="realtime_milano_refresh")
 
-def genera_sessione_anti_blocco():
-    """Crea una sessione con intestazioni browser variabili per bypassare i filtri anti-bot"""
-    session = requests.Session()
-    
-    # Rotazione degli User-Agent per simulare browser reali diversi
-    user_agents = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
-    ]
-    
-    headers = {
-        'User-Agent': random.choice(user_agents),
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Origin': 'https://yahoo.com',
-        'Referer': 'https://yahoo.com/'
-    }
-    session.headers.update(headers)
-    return session
-
-def interroga_borsa_realtime(ticker_simbolo, sessione):
+def interroga_borsa_realtime(ticker_simbolo):
     """Interroga direttamente i server finanziari per estrarre l'ultimo prezzo e la variazione percentuale"""
     try:
-        t = yf.Ticker(ticker_simbolo, session=sessione)
+        t = yf.Ticker(ticker_simbolo)
         
-        # cache=False forza il server a restituire l'ultimo secondo reale senza dati memorizzati vecchio stile
-        df_live = t.history(period="1d", interval="1m", cache=False)
-        df_ieri = t.history(period="2d", interval="1d", cache=False)
+        # Corretto: rimosso il parametro illegale cache=False che causava il blocco dell'applicazione
+        df_live = t.history(period="1d", interval="1m")
+        df_ieri = t.history(period="2d", interval="1d")
         
         if not df_live.empty and len(df_ieri) >= 1:
             prezzo_corrente = float(df_live['Close'].iloc[-1])
-            chiusura_precedente = float(df_ieri['Close'].iloc[-2]) if len(df_ieri) > 1 else float(df_ieri['Close'].iloc)
+            chiusura_precedente = float(df_ieri['Close'].iloc[-2]) if len(df_ieri) > 1 else float(df_ieri['Close'].iloc[0])
             variazione_percentuale = ((prezzo_corrente - chiusura_precedente) / chiusura_precedente) * 100
             return prezzo_corrente, variazione_percentuale
-    except Exception:
+    except Exception as e:
+        # Se c'è un errore temporaneo di rete, restituisce i dati vuoti per non far crashare la schermata
         pass
     return 0.0, 0.0
 
@@ -57,7 +35,6 @@ def interroga_borsa_realtime(ticker_simbolo, sessione):
 # INTERFACCIA APPLICAZIONE (STREAMLIT LAYOUT)
 # ==========================================
 
-# Orario dinamico di Roma aggiornato al secondo
 ora_attuale = datetime.now(pytz.timezone('Europe/Rome')).strftime('%H:%M:%S')
 st.title("🏛️ Monitor Istantaneo Piazza Affari")
 
@@ -68,18 +45,14 @@ if st.button("🔄 Forza Aggiornamento Book"):
 st.caption(f"Ultimo pacchetto dati elaborato da Milano alle ore: **{ora_attuale}**")
 st.markdown("---")
 
-# Generiamo una sessione fresca e pulita per questa specifica richiesta
-sessione_attiva = genera_sessione_anti_blocco()
-
 # Interrogazione di STM
-prezzo_stm, var_stm = interroga_borsa_realtime("STMMI.MI", sessione_attiva)
+prezzo_stm, var_stm = interroga_borsa_realtime("STMMI.MI")
 
-# 🛑 PAUSA TECNICA ANTI-BLOCCO: Aspettiamo poco più di un secondo prima della richiesta successiva
-# Impedisce a Yahoo di intercettare due richieste simultanee dallo stesso server di Hugging Face
-time.sleep(1.2)
+# 🛑 PAUSA TECNICA ANTI-BLOCCO: Evita richieste simultanee ravvicinate
+time.sleep(1.5)
 
 # Interrogazione di Leonardo
-prezzo_ldo, var_ldo = interroga_borsa_realtime("LDO.MI", sessione_attiva)
+prezzo_ldo, var_ldo = interroga_borsa_realtime("LDO.MI")
 
 # Soglia limite percentuale per far scattare l'allarme visivo di volatilità critica (3.5%)
 SOGLIA_ALLARME = 3.5
@@ -90,7 +63,6 @@ col_stm, col_ldo = st.columns(2)
 with col_stm:
     st.header("🇮🇹 STMicroelectronics")
     if prezzo_stm > 0:
-        # Controllo e attivazione dell'allarme critico
         if abs(var_stm) >= SOGLIA_ALLARME:
             st.error(f"⚠️ **ALLARME VOLATILITÀ CRITICA SU STM!** Oscillazione: {var_stm:+.2f}%")
         
@@ -108,7 +80,6 @@ with col_stm:
 with col_ldo:
     st.header("🇮🇹 Leonardo SpA")
     if prezzo_ldo > 0:
-        # Controllo e attivazione dell'allarme critico
         if abs(var_ldo) >= SOGLIA_ALLARME:
             st.error(f"⚠️ **ALLARME VOLATILITÀ CRITICA SU LEONARDO!** Oscillazione: {var_ldo:+.2f}%")
         
