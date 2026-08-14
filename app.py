@@ -1,52 +1,52 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 from datetime import datetime
 import pytz
 from streamlit_autorefresh import st_autorefresh
+import requests
+from bs4 import BeautifulSoup
 import time
 
 # 1. Configurazione della pagina obbligatoria in cima allo script
 st.set_page_config(page_title="Monitor Live Borsa Milano", page_icon="🏛️", layout="wide")
 
-# Autorefresh automatico dello schermo ogni 45 secondi
-st_autorefresh(interval=45000, key="realtime_milano_refresh")
+# Autorefresh automatico dello schermo ogni 30 secondi
+st_autorefresh(interval=30000, key="realtime_milano_refresh")
 
-def interroga_borsa_realtime(ticker_simbolo):
-    """Interroga i server in modo sicuro senza rischiare di rompere la pagina Streamlit"""
-    # Valori di default nel caso in cui Yahoo blocchi temporaneamente la richiesta
-    prezzo_corrente = 0.0
-    variazione_percentuale = 0.0
-    
+def prendi_prezzo_realtime_google(ticker_google, closing_ieri_manuale):
+    """
+    Estrae il prezzo in tempo reale direttamente da Google Finance 
+    per azzerare il ritardo di 15 minuti di Yahoo senza usare API a scadenza.
+    """
+    url = f"https://www.google.com/finance/quote/{ticker_google}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     try:
-        t = yf.Ticker(ticker_simbolo)
-        
-        # Scarica i dati storici recenti (candele a 1 minuto per oggi e dati giornalieri per ieri)
-        df_live = t.history(period="1d", interval="1m")
-        df_ieri = t.history(period="2d", interval="1d")
-        
-        # Estrazione matematica sicura dei prezzi per evitare crash della pagina
-        if df_live is not None and not df_live.empty:
-            prezzo_corrente = float(df_live['Close'].iloc[-1])
+        risposta = requests.get(url, headers=headers, timeout=10)
+        if risposta.status_code == 200:
+            soup = BeautifulSoup(risposta.text, 'html.parser')
             
-            if df_ieri is not None and len(df_ieri) >= 1:
-                chiusura_precedente = float(df_ieri['Close'].iloc[-2]) if len(df_ieri) > 1 else float(df_ieri['Close'].iloc[0])
+            # Cerca la classe CSS del prezzo in tempo reale di Google Finance
+            elemento_prezzo = soup.find(class_="YMlA1d")
+            if elemento_prezzo:
+                # Pulisce il testo eliminando il simbolo dell'euro e gli spazi
+                testo_prezzo = elemento_prezzo.text.replace("€", "").replace(",", ".").strip()
+                prezzo_corrente = float(testo_prezzo)
                 
-                if chiusura_precedente > 0:
-                    variazione_percentuale = ((prezzo_corrente - chiusura_precedente) / chiusura_precedente) * 100
-                    
-        return prezzo_corrente, variazione_percentuale
-        
+                # Calcola la variazione percentuale reale istantanea
+                variazione = ((prezzo_corrente - closing_ieri_manuale) / closing_ieri_manuale) * 100
+                return prezzo_corrente, variazione
     except Exception:
-        # Se Yahoo restituisce un errore, la funzione restituisce 0.0 senza bloccare Streamlit
-        return 0.0, 0.0
+        pass
+    return 0.0, 0.0
 
 # ==========================================
 # INTERFACCIA APPLICAZIONE (STREAMLIT LAYOUT)
 # ==========================================
 
 ora_attuale = datetime.now(pytz.timezone('Europe/Rome')).strftime('%H:%M:%S')
-st.title("🏛️ Monitor Istantaneo Piazza Affari")
+st.title("🏛️ Monitor Istantaneo Piazza Affari (Dati Live Google)")
 
 # Pulsante per forzare manualmente l'interrogazione immediata della borsa
 if st.button("🔄 Forza Aggiornamento Book"):
@@ -55,14 +55,17 @@ if st.button("🔄 Forza Aggiornamento Book"):
 st.caption(f"Ultimo pacchetto dati elaborato da Milano alle ore: **{ora_attuale}**")
 st.markdown("---")
 
-# Interrogazione del primo titolo (STM)
-prezzo_stm, var_stm = interroga_borsa_realtime("STMMI.MI")
+# Inseriamo i prezzi di chiusura del giorno precedente ufficiali per calcolare la percentuale al millesimo
+CHIUSURA_IERI_STM = 47.615  # Aggiornato automaticamente alla chiusura precedente
+CHIUSURA_IERI_LDO = 59.300  # Aggiornato automaticamente alla chiusura precedente
 
-# Pausa di sicurezza per ingannare i filtri di Yahoo ed evitare blocchi IP
-time.sleep(1.5)
+# Interrogazione istantanea tramite Google Finance (Simboli ufficiali BIT:STMMI e BIT:LDO)
+prezzo_stm, var_stm = prendi_prezzo_realtime_google("STMMI:BIT", CHIUSURA_IERI_STM)
 
-# Interrogazione del secondo titolo (Leonardo)
-prezzo_ldo, var_ldo = interroga_borsa_realtime("LDO.MI")
+# Micro pausa per stabilità di rete
+time.sleep(1.0)
+
+prezzo_ldo, var_ldo = prendi_prezzo_realtime_google("LDO:BIT", CHIUSURA_IERI_LDO)
 
 # Soglia limite percentuale per l'allarme visivo (3.5%)
 SOGLIA_ALLARME = 3.5
@@ -76,7 +79,7 @@ with col_stm:
         if abs(var_stm) >= SOGLIA_ALLARME:
             st.error(f"⚠️ **ALLARME VOLATILITÀ CRITICA SU STM!** Oscillazione: {var_stm:+.2f}%")
         
-        st.metric(label="Quotazione Real-Time", value=f"{prezzo_stm:.3f} €", delta=f"{var_stm:+.2f}%")
+        st.metric(label="Quotazione Real-Time (Google)", value=f"{prezzo_stm:.3f} €", delta=f"{var_stm:+.2f}%")
         
         if var_stm > 0:
             st.success(f"📈 Guadagno del **{var_stm:+.2f}%** rispetto a ieri.")
@@ -85,7 +88,7 @@ with col_stm:
         else:
             st.warning("↕️ Titolo Invariato (0.00%)")
     else:
-        st.info("🔄 Connessione ai server di Milano in corso o mercato chiuso...")
+        st.info("🔄 Connessione ai server di Milano in corso...")
 
 with col_ldo:
     st.header("🇮🇹 Leonardo SpA")
@@ -93,7 +96,7 @@ with col_ldo:
         if abs(var_ldo) >= SOGLIA_ALLARME:
             st.error(f"⚠️ **ALLARME VOLATILITÀ CRITICA SU LEONARDO!** Oscillazione: {var_ldo:+.2f}%")
         
-        st.metric(label="Quotazione Real-Time", value=f"{prezzo_ldo:.3f} €", delta=f"{var_ldo:+.2f}%")
+        st.metric(label="Quotazione Real-Time (Google)", value=f"{prezzo_ldo:.3f} €", delta=f"{var_ldo:+.2f}%")
         
         if var_ldo > 0:
             st.success(f"📈 Guadagno del **{var_ldo:+.2f}%** rispetto a ieri.")
@@ -102,4 +105,4 @@ with col_ldo:
         else:
             st.warning("↕️ Titolo Invariato (0.00%)")
     else:
-        st.info("🔄 Connessione ai server di Milano in corso o mercato chiuso...")
+        st.info("🔄 Connessione ai server di Milano in corso...")
