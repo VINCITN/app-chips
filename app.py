@@ -14,7 +14,7 @@ st_autorefresh(interval=15000, key="api_milano_refresh")
 # =========================================================================
 # 🔑 INSERISCI QUI LA TUA CHIAVE API DI TWELVE DATA (MANTENENDO LE VIRGOLETTE)
 # =========================================================================
-API_KEY = "IL_TUO_CODICE_API_KEY_QUI" 
+API_KEY = "08c87d06d1984672aa8b3b12fe70065c" 
 # =========================================================================
 
 def interroga_twelvedata_realtime(ticker_api):
